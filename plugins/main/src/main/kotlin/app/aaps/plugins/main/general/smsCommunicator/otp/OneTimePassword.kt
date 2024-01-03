@@ -32,6 +32,10 @@ class OneTimePassword @Inject constructor(
         configure()
     }
 
+    fun isEnabled(): Boolean {
+        return preferences.get(BooleanKey.SmsEnableOtp)
+    }
+
     /**
      * Name of master device (target of OTP)
      */
