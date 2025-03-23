@@ -113,6 +113,18 @@
             android:summary="@string/set_neutral_temps_summary"
             android:title="@string/set_neutral_temps_title" />
 
+        <SwitchPreference
+            android:defaultValue="true"
+            android:key="@string/key_log_battery_change"
+            android:summary="@string/log_battery_change_summary"
+            android:title="@string/log_battery_change_title" />
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:key="@string/key_log_insulin_change"
+            android:summary="@string/log_insulin_change_summary"
+            android:title="@string/log_insulin_change_title" />
+
     </PreferenceCategory>
 
 </androidx.preference.PreferenceScreen>
