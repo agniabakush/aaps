@@ -167,6 +167,7 @@ class OverviewPlugin @Inject constructor(
             .put(IntKey.OverviewBattWarning, preferences)
             .put(IntKey.OverviewBattCritical, preferences)
             .put(IntKey.OverviewBolusPercentage, preferences)
+            .store(BooleanKey.ApsAutoIsfExerciseMode, preferences)
             .put(rh.gs(app.aaps.core.utils.R.string.key_used_autosens_on_main_phone), constraintsChecker.isAutosensModeEnabled().value())
 
     override fun applyConfiguration(configuration: JSONObject) {
@@ -197,6 +198,7 @@ class OverviewPlugin @Inject constructor(
             .store(IntKey.OverviewBattWarning, preferences)
             .store(IntKey.OverviewBattCritical, preferences)
             .store(IntKey.OverviewBolusPercentage, preferences)
+            .store(BooleanKey.ApsAutoIsfExerciseMode, preferences)
             .storeBoolean(app.aaps.core.utils.R.string.key_used_autosens_on_main_phone, sp, rh)
 
         val newUnits = preferences.getIfExists(StringKey.GeneralUnits) ?: "new"
@@ -216,6 +218,7 @@ class OverviewPlugin @Inject constructor(
             }
             if (config.COMMITTED) {
                 view.setTextColor(rh.gac(context, app.aaps.core.ui.R.attr.omniGrayColor))
+                view.setTypeface(null, Typeface.BOLD)
                 view.alpha = 1.0f
             } else if (sp.getLong(rh.gs(app.aaps.core.utils.R.string.key_app_expiration) + "_" + config.VERSION_NAME, 0) != 0L) {
                 view.setTextColor(rh.gac(context, app.aaps.core.ui.R.attr.metadataTextWarningColor))

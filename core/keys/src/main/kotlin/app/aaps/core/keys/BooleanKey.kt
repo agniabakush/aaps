@@ -105,6 +105,7 @@ enum class BooleanKey(
     NsClientCreateAnnouncementsFromCarbsReq("ns_create_announcements_from_carbs_req", false, calculatedDefaultValue = true, showInNsClientMode = false),
     NsClientSlowSync("ns_sync_slow", false),
     NsClient3UseWs("ns_use_ws", true),
+    NsClient3IgnoreErrors("ns_ignore_errors", false),
     TidepoolUseTestServers("tidepool_dev_servers", false),
     OpenHumansWifiOnly("oh_wifi_only", true),
     OpenHumansChargingOnly("oh_charging_only", false),
@@ -130,4 +131,5 @@ enum class BooleanKey(
     NightModeLowTT("night_mode_low_tt", true, dependency = NightMode),
     AllowRecalculatedBGs("allow_recalc_bgs", false),
     LyumjevU200("lyumjev_u200", false),
+    EnableSmbBgThreshold("enable_smb_bg_threshold", false),
 }

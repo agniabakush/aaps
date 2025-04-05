@@ -193,7 +193,11 @@ public class RFSpy {
     }
 
     private byte[] writeToDataRaw(@NonNull byte[] bytes, int responseTimeout_ms) {
-        SystemClock.sleep(100);
+        if (sp.getBoolean(RileyLinkConst.Prefs.FastMode, false))
+            SystemClock.sleep(1);
+        else
+            SystemClock.sleep(100);
+
         // FIXME drain read queue?
         byte[] junkInBuffer = reader.poll(0);
 
@@ -214,8 +218,6 @@ public class RFSpy {
             aapsLogger.error(LTag.PUMPBTCOMM, "BLE Write operation failed, code=" + writeCheck.resultCode);
             return null; // will be a null (invalid) response
         }
-
-        SystemClock.sleep(100);
 
         return reader.poll(responseTimeout_ms);
     }

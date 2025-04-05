@@ -2,6 +2,7 @@ package app.aaps.plugins.main.general.smsCommunicator
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.telephony.SmsManager
 import android.telephony.SmsMessage
 import android.text.TextUtils
@@ -55,6 +56,7 @@ import app.aaps.core.interfaces.smsCommunicator.SmsCommunicator
 import app.aaps.core.interfaces.sync.XDripBroadcast
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.DecimalFormatter
+import app.aaps.core.interfaces.utils.Round
 import app.aaps.core.interfaces.utils.SafeParse
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.core.keys.BooleanKey
@@ -98,7 +100,7 @@ class SmsCommunicatorPlugin @Inject constructor(
     private val injector: HasAndroidInjector,
     aapsLogger: AAPSLogger,
     rh: ResourceHelper,
-    private val smsManager: SmsManager?,
+    private val smsManagerInjected: SmsManager?,
     private val aapsSchedulers: AapsSchedulers,
     private val preferences: Preferences,
     private val constraintChecker: ConstraintsChecker,
@@ -118,7 +120,8 @@ class SmsCommunicatorPlugin @Inject constructor(
     private val glucoseStatusProvider: GlucoseStatusProvider,
     private val persistenceLayer: PersistenceLayer,
     private val decimalFormatter: DecimalFormatter,
-    private val configBuilder: ConfigBuilder
+    private val configBuilder: ConfigBuilder,
+    private val context: Context
 ) : PluginBase(
     PluginDescription()
         .mainType(PluginType.GENERAL)
@@ -130,6 +133,10 @@ class SmsCommunicatorPlugin @Inject constructor(
         .description(R.string.description_sms_communicator),
     aapsLogger, rh
 ), SmsCommunicator {
+
+    @Suppress("DEPRECATION")
+    private val smsManager: SmsManager?
+        get() = smsManagerInjected ?: if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) SmsManager.getDefault() else context.getSystemService(SmsManager::class.java)
 
     private val disposable = CompositeDisposable()
     var allowedNumbers: MutableList<String> = ArrayList()
@@ -380,7 +387,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             reply = rh.gs(R.string.sms_last_bg) + " " + profileUtil.valueInCurrentUnitsDetect(lastBG.recalculated) + " " + rh.gs(R.string.sms_min_ago, agoMin) + ", "
         }
         val glucoseStatus = glucoseStatusProvider.glucoseStatusData
-        if (glucoseStatus != null) reply += rh.gs(R.string.sms_delta) + " " + profileUtil.fromMgdlToUnits(glucoseStatus.delta) + " " + units + ", "
+        if (glucoseStatus != null) reply += rh.gs(R.string.sms_delta) + " " + profileUtil.fromMgdlToStringInUnits(glucoseStatus.delta) + " " + units + ", "
         val bolusIob = iobCobCalculator.calculateIobFromBolus().round()
         val basalIob = iobCobCalculator.calculateIobFromTempBasalsIncludingConvertedExtended().round()
         val cobInfo = iobCobCalculator.getCobInfo("SMS COB")
@@ -1234,16 +1241,20 @@ class SmsCommunicatorPlugin @Inject constructor(
     override fun sendSMS(sms: Sms): Boolean {
         sms.text = stripAccents(sms.text)
 
+        if (smsManager == null) {
+            val notification = Notification(Notification.URGENT, rh.gs(app.aaps.core.ui.R.string.smscommunicator_missingsmspermission), Notification.NORMAL)
+            rxBus.send(EventNewNotification(notification))
+            aapsLogger.debug(LTag.SMS, "Couldn't send any SMS - smsManager is null!")
+            return false
+        }
+
         try {
             aapsLogger.debug(LTag.SMS, "Sending SMS to " + sms.phoneNumber + ": " + sms.text)
-            if (sms.text.toByteArray().size <= 140) smsManager?.sendTextMessage(sms.phoneNumber, null, sms.text, null, null)
-            else {
-                val parts = smsManager?.divideMessage(sms.text)
-                smsManager?.sendMultipartTextMessage(
-                    sms.phoneNumber, null, parts,
-                    null, null
-                )
-            }
+            val parts = smsManager?.divideMessage(sms.text)
+            smsManager?.sendMultipartTextMessage(
+                sms.phoneNumber, null, parts,
+                null, null
+            )
             messages.add(sms)
         } catch (e: IllegalArgumentException) {
             return if (e.message == "Invalid message body") {
