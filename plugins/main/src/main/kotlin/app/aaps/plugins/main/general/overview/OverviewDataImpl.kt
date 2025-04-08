@@ -25,14 +25,14 @@ import app.aaps.core.interfaces.logging.AAPSLogger
 import app.aaps.core.interfaces.nsclient.ProcessedDeviceStatusData
 import app.aaps.core.interfaces.overview.OverviewData
 import app.aaps.core.interfaces.plugin.ActivePlugin
-import app.aaps.core.interfaces.profile.Profile
 import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.resources.ResourceHelper
-import app.aaps.core.interfaces.sharedPreferences.SP
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.keys.BooleanKey
-import app.aaps.core.keys.Preferences
+import app.aaps.core.keys.BooleanNonKey
+import app.aaps.core.keys.IntNonKey
+import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.objects.R
 import app.aaps.core.objects.extensions.convertedToPercent
 import app.aaps.core.objects.extensions.isInProgress
@@ -48,7 +48,6 @@ import javax.inject.Singleton
 class OverviewDataImpl @Inject constructor(
     private val rh: ResourceHelper,
     private val dateUtil: DateUtil,
-    private val sp: SP,
     private val activePlugin: ActivePlugin,
     private val profileFunction: ProfileFunction,
     private val persistenceLayer: PersistenceLayer,
@@ -116,7 +115,7 @@ class OverviewDataImpl @Inject constructor(
     }
 
     override fun initRange() {
-        rangeToDisplay = sp.getInt(app.aaps.core.utils.R.string.key_rangetodisplay, 6)
+        rangeToDisplay = preferences.get(IntNonKey.RangeToDisplay)
 
         val calendar = Calendar.getInstance().also {
             it.timeInMillis = System.currentTimeMillis()
@@ -166,7 +165,7 @@ class OverviewDataImpl @Inject constructor(
 
     override fun autoOrTddSensRatio(loop: Loop, iobCobCalculator: IobCobCalculator): Double? {
         val useAutosens =
-            if (config.AAPSCLIENT) sp.getBoolean(app.aaps.core.utils.R.string.key_used_autosens_on_main_phone, false)
+            if (config.AAPSCLIENT) preferences.get(BooleanNonKey.AutosensUsedOnMainPhone)
             else constraintsChecker.isAutosensModeEnabled().value()
 
         val request = loop.lastRun?.request

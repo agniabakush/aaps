@@ -1,5 +1,7 @@
 package app.aaps.core.keys
 
+import app.aaps.core.keys.interfaces.BooleanPreferenceKey
+
 enum class BooleanKey(
     override val key: String,
     override val defaultValue: Boolean,
@@ -11,7 +13,8 @@ enum class BooleanKey(
     override val dependency: BooleanPreferenceKey? = null,
     override val negativeDependency: BooleanPreferenceKey? = null,
     override val hideParentScreenIfHidden: Boolean = false,
-    override val engineeringModeOnly: Boolean = false
+    override val engineeringModeOnly: Boolean = false,
+    override val exportable: Boolean = true
 ) : BooleanPreferenceKey {
 
     GeneralSimpleMode("simple_mode", true),
@@ -82,7 +85,6 @@ enum class BooleanKey(
     SmsReportToAll("smscommunicator_report_to_all", true, dependency = SmsAllowRemoteCommands),
 
     VirtualPumpStatusUpload("virtualpump_uploadstatus", false, showInNsClientMode = false),
-    GarminLocalHttpServer("communication_http", false, defaultedBySM = true, hideParentScreenIfHidden = true),
     NsClientUploadData("ns_upload", true, showInNsClientMode = false, hideParentScreenIfHidden = true),
     NsClientAcceptCgmData("ns_receive_cgm", false, showInNsClientMode = false, hideParentScreenIfHidden = true),
     NsClientAcceptProfileStore("ns_receive_profile_store", true, showInNsClientMode = false, hideParentScreenIfHidden = true),
@@ -122,6 +124,11 @@ enum class BooleanKey(
     WearCustomWatchfaceAuthorization(key = "wear_custom_watchface_autorization", defaultValue = false),
     WearNotifyOnSmb(key = "wear_notifySMB", defaultValue = true),
     WearBroadcastData(key = "wear_broadcast_data", defaultValue = false),
+
+    WizardCalculationVisible("wizard_calculation_visible", defaultValue = false),
+    WizardCorrectionPercent("wizard_correction_percent", defaultValue = false),
+    WizardIncludeCob("wizard_include_cob", defaultValue = false),
+    WizardIncludeTrend("wizard_include_trend_bg", defaultValue = false),
 
     AlwaysPromoteAdvancedFiltering("always_promote_advanced_filtering", false),
     DisableUpdatesChecker("skip_updates_check", false, defaultedBySM = false),

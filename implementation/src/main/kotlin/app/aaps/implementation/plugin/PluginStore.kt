@@ -14,6 +14,7 @@ import app.aaps.core.interfaces.logging.LTag
 import app.aaps.core.interfaces.overview.Overview
 import app.aaps.core.interfaces.plugin.ActivePlugin
 import app.aaps.core.interfaces.plugin.PluginBase
+import app.aaps.core.interfaces.plugin.PluginBaseWithPreferences
 import app.aaps.core.interfaces.profile.ProfileSource
 import app.aaps.core.interfaces.pump.Pump
 import app.aaps.core.interfaces.smoothing.Smoothing
@@ -48,10 +49,6 @@ class PluginStore @Inject constructor(
     private var activeSensitivityStore: Sensitivity? = null
     private var activeSmoothingStore: Smoothing? = null
 
-    override fun loadDefaults() {
-        verifySelectionInCategories()
-    }
-
     private fun getDefaultPlugin(type: PluginType): PluginBase {
         for (p in plugins)
             if (p.getType() == type && p.isDefault()) return p
@@ -64,6 +61,18 @@ class PluginStore @Inject constructor(
             if (p.getType() == type) newList.add(p)
         }
         return newList
+    }
+
+    override fun beforeImport() {
+        plugins.forEach {
+            if (it is PluginBaseWithPreferences) it.beforeImport()
+        }
+    }
+
+    override fun afterImport() {
+        plugins.forEach {
+            if (it is PluginBaseWithPreferences) it.afterImport()
+        }
     }
 
     override fun getSpecificPluginsListByInterface(interfaceClass: Class<*>): ArrayList<PluginBase> {

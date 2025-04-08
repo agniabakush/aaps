@@ -1,5 +1,8 @@
 package app.aaps.core.keys
 
+import app.aaps.core.keys.interfaces.BooleanPreferenceKey
+import app.aaps.core.keys.interfaces.StringPreferenceKey
+
 enum class StringKey(
     override val key: String,
     override val defaultValue: String,
@@ -11,7 +14,8 @@ enum class StringKey(
     override val negativeDependency: BooleanPreferenceKey? = null,
     override val hideParentScreenIfHidden: Boolean = false,
     override val isPassword: Boolean = false,
-    override val isPin: Boolean = false
+    override val isPin: Boolean = false,
+    override val exportable: Boolean = true
 ) : StringPreferenceKey {
 
     GeneralUnits("units", "mg/dl"),
@@ -40,7 +44,6 @@ enum class StringKey(
 
     SmsAllowedNumbers("smscommunicator_allowednumbers", ""),
     SmsOtpPassword("smscommunicator_otp_password", "", dependency = BooleanKey.SmsAllowRemoteCommands, isPassword = true),
-    SmsOtpSecret("smscommunicator_otp_secret", ""), // Move to StringNonKey
 
     VirtualPumpType("virtualpump_type", "Generic AAPS"),
 
@@ -55,4 +58,6 @@ enum class StringKey(
     NightModeBegin("night_mode_begin", "22:00", dependency = BooleanKey.NightMode),
     NightModeEnd("night_mode_end", "06:00", dependency = BooleanKey.NightMode),
     GarminRequestKey(key = "garmin_aaps_key", defaultValue = ""),
+    PumpCommonBolusStorage("pump_sync_storage_bolus", ""),
+    PumpCommonTbrStorage("pump_sync_storage_tbr", ""),
 }

@@ -7,8 +7,10 @@ import android.view.View
 import android.widget.CheckBox
 import android.widget.CompoundButton
 import android.widget.SeekBar
-import androidx.appcompat.widget.SwitchCompat
 import app.aaps.core.interfaces.sharedPreferences.SP
+import app.aaps.core.keys.BooleanComposedKey
+import app.aaps.core.keys.IntComposedKey
+import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.ui.databinding.WidgetConfigureBinding
 import dagger.android.DaggerActivity
 import javax.inject.Inject
@@ -18,16 +20,7 @@ import javax.inject.Inject
  */
 class WidgetConfigureActivity : DaggerActivity() {
 
-    @Inject lateinit var sp: SP
-
-    companion object {
-
-        const val PREF_PREFIX_KEY = "appwidget_"
-        const val DEFAULT_OPACITY = 25
-
-        const val STATUS_PREFIX_KEY = "status_"
-        const val DEFAULT_STATUS_ENABLED = true
-    }
+    @Inject lateinit var preferences: Preferences
 
     private var appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
@@ -45,12 +38,13 @@ class WidgetConfigureActivity : DaggerActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar) {}
             override fun onStartTrackingTouch(seekBar: SeekBar) {}
             override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
-                saveOpacityPref(appWidgetId, progress)
+                // Write the prefix to the SharedPreferences object for this widget
+                preferences.put(IntComposedKey.WidgetOpacity, appWidgetId, value = progress)
                 Widget.updateWidget(this@WidgetConfigureActivity, "WidgetConfigure")
             }
         })
         binding.statusSwitch.setOnCheckedChangeListener { _, v ->
-            saveStatusPref(appWidgetId, v)
+            preferences.put(BooleanComposedKey.WidgetShowStatus, appWidgetId, value = v)
             Widget.updateWidget(this, "WidgetConfigure")
         }
 
@@ -63,7 +57,7 @@ class WidgetConfigureActivity : DaggerActivity() {
         }
 
         binding.useBlack.setOnCheckedChangeListener { _, value ->
-            sp.putBoolean(PREF_PREFIX_KEY + "use_black_$appWidgetId", value)
+            preferences.put(BooleanComposedKey.WidgetUseBlack, appWidgetId, value = value)
             Widget.updateWidget(this@WidgetConfigureActivity, "WidgetConfigure")
         }
 
@@ -76,20 +70,8 @@ class WidgetConfigureActivity : DaggerActivity() {
             return
         }
 
-        binding.seekBar.progress = loadOpacityPref(appWidgetId)
-        binding.statusSwitch.isChecked = loadStatusPref(appWidgetId)
-        binding.useBlack.isChecked = sp.getBoolean(PREF_PREFIX_KEY + "use_black_$appWidgetId", false)
+        binding.seekBar.progress = preferences.get(IntComposedKey.WidgetOpacity, appWidgetId)
+        binding.useBlack.isChecked = preferences.get(BooleanComposedKey.WidgetUseBlack, appWidgetId)
+        binding.statusSwitch.isChecked = preferences.get(BooleanComposedKey.WidgetShowStatus, appWidgetId)
     }
-
-    // Write the prefix to the SharedPreferences object for this widget
-    fun saveOpacityPref(appWidgetId: Int, value: Int) {
-        sp.putInt(PREF_PREFIX_KEY + appWidgetId, value)
-    }
-
-    fun saveStatusPref(appWidgetId: Int, value: Boolean) {
-        sp.putBoolean(PREF_PREFIX_KEY + STATUS_PREFIX_KEY + appWidgetId, value)
-    }
-
-    private fun loadOpacityPref(appWidgetId: Int): Int = sp.getInt(PREF_PREFIX_KEY + appWidgetId, DEFAULT_OPACITY)
-    private fun loadStatusPref(appWidgetId: Int): Boolean = sp.getBoolean(PREF_PREFIX_KEY + STATUS_PREFIX_KEY + appWidgetId, DEFAULT_STATUS_ENABLED)
 }

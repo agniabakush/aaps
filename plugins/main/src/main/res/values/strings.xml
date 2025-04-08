@@ -284,7 +284,6 @@
     <string name="overview_basal_always_not_absolute">Always show TBR in %</string>
 
     <!--    OverviewMenu-->
-    <string name="key_graph_config" translatable="false">graphconfig</string>
     <string name="overview_show_predictions">Predictions</string>
     <string name="overview_show_treatments">Treatments</string>
     <string name="overview_show_heartRate">Heart Rate</string>

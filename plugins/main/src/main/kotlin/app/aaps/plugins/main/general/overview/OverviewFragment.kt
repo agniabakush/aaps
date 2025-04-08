@@ -77,7 +77,6 @@ import app.aaps.core.interfaces.rx.events.EventUpdateOverviewIobCob
 import app.aaps.core.interfaces.rx.events.EventUpdateOverviewSensitivity
 import app.aaps.core.interfaces.rx.events.EventWearUpdateTiles
 import app.aaps.core.interfaces.rx.weardata.EventData
-import app.aaps.core.interfaces.sharedPreferences.SP
 import app.aaps.core.interfaces.source.DexcomBoyda
 import app.aaps.core.interfaces.source.XDripSource
 import app.aaps.core.interfaces.ui.UiInteraction
@@ -86,9 +85,11 @@ import app.aaps.core.interfaces.utils.DecimalFormatter
 import app.aaps.core.interfaces.utils.TrendCalculator
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.core.keys.BooleanKey
+import app.aaps.core.keys.BooleanNonKey
 import app.aaps.core.keys.DoubleKey
-import app.aaps.core.keys.Preferences
+import app.aaps.core.keys.IntNonKey
 import app.aaps.core.keys.UnitDoubleKey
+import app.aaps.core.keys.interfaces.Preferences
 import app.aaps.core.objects.constraints.ConstraintObject
 import app.aaps.core.objects.extensions.directionToIcon
 import app.aaps.core.objects.extensions.displayText
@@ -124,7 +125,6 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
     @Inject lateinit var injector: HasAndroidInjector
     @Inject lateinit var aapsLogger: AAPSLogger
     @Inject lateinit var aapsSchedulers: AapsSchedulers
-    @Inject lateinit var sp: SP
     @Inject lateinit var preferences: Preferences
     @Inject lateinit var rxBus: RxBus
     @Inject lateinit var rh: ResourceHelper
@@ -231,9 +231,9 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
         binding.graphsLayout.bgGraph.setOnLongClickListener {
             overviewData.rangeToDisplay += 6
             overviewData.rangeToDisplay = if (overviewData.rangeToDisplay > 24) 6 else overviewData.rangeToDisplay
-            sp.putInt(app.aaps.core.utils.R.string.key_rangetodisplay, overviewData.rangeToDisplay)
-            rxBus.send(EventPreferenceChange(rh.gs(app.aaps.core.utils.R.string.key_rangetodisplay)))
-            sp.putBoolean(app.aaps.core.utils.R.string.key_objectiveusescale, true)
+            preferences.put(IntNonKey.RangeToDisplay, overviewData.rangeToDisplay)
+            rxBus.send(EventPreferenceChange(IntNonKey.RangeToDisplay.key))
+            preferences.put(BooleanNonKey.ObjectivesScaleUsed, true)
             false
         }
         prepareGraphsIfNeeded(overviewMenus.setting.size)
@@ -298,9 +298,9 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
             .observeOn(aapsSchedulers.main)
             .subscribe({
                            overviewData.rangeToDisplay = it.hours
-                           sp.putInt(app.aaps.core.utils.R.string.key_rangetodisplay, it.hours)
-                           rxBus.send(EventPreferenceChange(rh.gs(app.aaps.core.utils.R.string.key_rangetodisplay)))
-                           sp.putBoolean(app.aaps.core.utils.R.string.key_objectiveusescale, true)
+                           preferences.put(IntNonKey.RangeToDisplay, it.hours)
+                           rxBus.send(EventPreferenceChange(IntNonKey.RangeToDisplay.key))
+                           preferences.put(BooleanNonKey.ObjectivesScaleUsed, true)
                        }, fabricPrivacy::logException)
         disposable += rxBus
             .toObservable(EventBucketedDataCreated::class.java)
@@ -585,7 +585,7 @@ class OverviewFragment : DaggerFragment(), View.OnClickListener, OnLongClickList
             _binding ?: return@runOnUiThread
             if (showAcceptButton && pump.isInitialized() && !pump.isSuspended() && (loop as PluginBase).isEnabled()) {
                 binding.buttonsLayout.acceptTempButton.visibility = View.VISIBLE
-                binding.buttonsLayout.acceptTempButton.text = "${rh.gs(R.string.set_basal_question)}\n${lastRun.constraintsProcessed?.resultAsString()}"
+                binding.buttonsLayout.acceptTempButton.text = "${rh.gs(R.string.set_basal_question)}\n${lastRun?.constraintsProcessed?.resultAsString()}"
             } else {
                 binding.buttonsLayout.acceptTempButton.visibility = View.GONE
             }
