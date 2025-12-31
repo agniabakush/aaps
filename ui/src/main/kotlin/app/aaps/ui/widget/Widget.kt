@@ -198,9 +198,9 @@ class Widget : AppWidgetProvider() {
                         if (pump.model().supportBatteryLevel || erosBatteryLinkAvailable) {
                             views.setViewVisibility(R.id.pb_level, View.VISIBLE)
                             views.setTextColor(R.id.pb_level, rh.gc(when {
-                                pump.batteryLevel <= preferences.get(IntKey.OverviewBattCritical) -> app.aaps.core.ui.R.color.widget_ribbonCritical
-                                pump.batteryLevel <= preferences.get(IntKey.OverviewBattWarning) -> app.aaps.core.ui.R.color.widget_ribbonWarning
-                                else -> app.aaps.core.ui.R.color.widget_ribbonTextDefault
+                                (pump.batteryLevel ?: 0) <= preferences.get(IntKey.OverviewBattCritical) -> app.aaps.core.ui.R.color.widget_ribbonCritical
+                                (pump.batteryLevel ?: 0) <= preferences.get(IntKey.OverviewBattWarning)  -> app.aaps.core.ui.R.color.widget_ribbonWarning
+                                else                                                                     -> app.aaps.core.ui.R.color.widget_ribbonTextDefault
                             }))
                             views.setTextViewText(R.id.pb_level, pump.batteryLevel.toString() + "%")
                         }

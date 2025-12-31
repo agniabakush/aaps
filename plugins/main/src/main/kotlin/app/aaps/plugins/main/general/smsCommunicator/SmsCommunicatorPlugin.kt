@@ -1242,7 +1242,7 @@ class SmsCommunicatorPlugin @Inject constructor(
 
     private fun sendReport(senderNumber: String, replyText: String, tryAddingPumpStatus: Boolean = false) {
         val message =
-            if (tryAddingPumpStatus && preferences.get(BooleanKey.SmsAddPumpStatus)) replyText + "\n" + activePlugin.activePump.shortStatus(true)
+            if (tryAddingPumpStatus && preferences.get(BooleanKey.SmsAddPumpStatus)) replyText + "\n" + pumpStatusProvider.shortStatus(true)
             else replyText
         val sms = Sms(senderNumber, message)
         if (preferences.get(BooleanKey.SmsReportToAll)) sendSMSToAllNumbers(sms)

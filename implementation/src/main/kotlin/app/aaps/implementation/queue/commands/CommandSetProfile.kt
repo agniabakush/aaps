@@ -35,7 +35,6 @@ class CommandSetProfile(
     @Inject lateinit var config: Config
     @Inject lateinit var persistenceLayer: PersistenceLayer
     @Inject lateinit var pumpEnactResultProvider: Provider<PumpEnactResult>
-    @Inject lateinit var instantiator: Instantiator
     @Inject lateinit var preferences: Preferences
 
     init {

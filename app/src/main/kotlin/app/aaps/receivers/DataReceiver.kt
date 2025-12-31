@@ -86,8 +86,6 @@ open class DataReceiver : DaggerBroadcastReceiver() {
 
             Intents.SI_APP                            ->
                 OneTimeWorkRequest.Builder(PatchedSiAppPlugin.PatchedSiAppWorker::class.java)
-            Intents.OTTAI_APP, Intents.CN_OTTAI_APP    ->
-                OneTimeWorkRequest.Builder(OttaiPlugin.OttaiWorker::class.java)
                     .setInputData(Data.Builder().also {
                         it.copyString("collection", bundle)
                         it.copyString("data", bundle)
