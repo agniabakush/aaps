@@ -14,10 +14,9 @@ import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
-import app.aaps.core.data.aps.ApsMode
 import app.aaps.core.data.configuration.Constants
 import app.aaps.core.data.model.GlucoseUnit
-import app.aaps.core.data.model.OE
+import app.aaps.core.data.model.RM
 import app.aaps.core.data.model.TT
 import app.aaps.core.data.plugin.PluginType
 import app.aaps.core.data.time.T
@@ -41,6 +40,7 @@ import app.aaps.core.interfaces.plugin.PluginDescription
 import app.aaps.core.interfaces.profile.ProfileFunction
 import app.aaps.core.interfaces.profile.ProfileUtil
 import app.aaps.core.interfaces.pump.DetailedBolusInfo
+import app.aaps.core.interfaces.pump.PumpStatusProvider
 import app.aaps.core.interfaces.pump.PumpSync
 import app.aaps.core.interfaces.queue.Callback
 import app.aaps.core.interfaces.queue.CommandQueue
@@ -50,7 +50,6 @@ import app.aaps.core.interfaces.rx.bus.RxBus
 import app.aaps.core.interfaces.rx.events.EventNSClientRestart
 import app.aaps.core.interfaces.rx.events.EventNewNotification
 import app.aaps.core.interfaces.rx.events.EventPreferenceChange
-import app.aaps.core.interfaces.rx.events.EventRefreshOverview
 import app.aaps.core.interfaces.smsCommunicator.Sms
 import app.aaps.core.interfaces.smsCommunicator.SmsCommunicator
 import app.aaps.core.interfaces.sync.XDripBroadcast
@@ -80,24 +79,23 @@ import app.aaps.plugins.main.R
 import app.aaps.plugins.main.general.smsCommunicator.activities.SmsCommunicatorOtpActivity
 import app.aaps.plugins.main.general.smsCommunicator.events.EventSmsCommunicatorUpdateGui
 import app.aaps.plugins.main.general.smsCommunicator.otp.OneTimePassword
-import dagger.android.HasAndroidInjector
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.kotlin.plusAssign
 import kotlinx.coroutines.Dispatchers
-import org.apache.commons.lang3.StringUtils
+import org.apache.commons.lang3.Strings
 import org.joda.time.DateTime
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlin.math.max
 import kotlin.math.min
 
 @Singleton
 class SmsCommunicatorPlugin @Inject constructor(
-    private val injector: HasAndroidInjector,
     aapsLogger: AAPSLogger,
     rh: ResourceHelper,
     private val smsManagerInjected: SmsManager?,
@@ -121,7 +119,9 @@ class SmsCommunicatorPlugin @Inject constructor(
     private val persistenceLayer: PersistenceLayer,
     private val decimalFormatter: DecimalFormatter,
     private val configBuilder: ConfigBuilder,
-    private val context: Context
+    private val context: Context,
+    private val authRequestProvider: Provider<AuthRequest>,
+    private val pumpStatusProvider: PumpStatusProvider
 ) : PluginBase(
     PluginDescription()
         .mainType(PluginType.GENERAL)
@@ -146,7 +146,7 @@ class SmsCommunicatorPlugin @Inject constructor(
 
     private val commands = mapOf(
         "BG" to "BG",
-        "LOOP" to "LOOP STOP/DISABLE/START/ENABLE/RESUME/STATUS/CLOSED/LGS\nLOOP SUSPEND 20",
+        "LOOP" to "LOOP STOP/DISABLE/RESUME/STATUS/CLOSED/LGS\nLOOP SUSPEND 20",
         "AAPSCLIENT" to "AAPSCLIENT RESTART",
         "PUMP" to "PUMP\nPUMP CONNECT\nPUMP DISCONNECT 30\n",
         "BASAL" to "BASAL STOP/CANCEL\nBASAL 0.3\nBASAL 0.3 20\nBASAL 30%\nBASAL 30% 20\n",
@@ -277,7 +277,6 @@ class SmsCommunicatorPlugin @Inject constructor(
             rxBus.send(EventSmsCommunicatorUpdateGui())
             return
         }
-        val pump = activePlugin.activePump
         messages.add(receivedSms)
         aapsLogger.debug(LTag.SMS, receivedSms.toString())
         val divided = receivedSms.text.trim().split(Regex("\\s+")).toTypedArray()
@@ -327,7 +326,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                     if (!remoteCommandsAllowed) sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_command_not_allowed)))
                     else if (commandQueue.bolusInQueue()) sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_another_bolus_in_queue)))
                     else if (divided.size == 2 && dateUtil.now() - lastRemoteBolusTime < minDistance) sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_bolus_not_allowed)))
-                    else if (divided.size == 2 && pump.isSuspended()) sendSMS(Sms(receivedSms.phoneNumber, rh.gs(app.aaps.core.ui.R.string.pumpsuspended)))
+                    else if (divided.size == 2 && loop.runningMode.isSuspended()) sendSMS(Sms(receivedSms.phoneNumber, rh.gs(app.aaps.core.ui.R.string.pumpsuspended)))
                     else if (divided.size == 2 || divided.size == 3) processBOLUS(divided, receivedSms)
                     else sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.wrong_format)))
 
@@ -400,24 +399,24 @@ class SmsCommunicatorPlugin @Inject constructor(
     }
 
     private fun processLOOP(divided: Array<String>, receivedSms: Sms) {
+        val profile = profileFunction.getProfile() ?: return
         when (divided[1].uppercase(Locale.getDefault())) {
             "DISABLE", "STOP" -> {
-                if (loop.isEnabled()) {
+                if (loop.allowedNextModes().contains(RM.Mode.DISABLED_LOOP)) {
                     val passCode = generatePassCode()
                     val reply = rh.gs(R.string.smscommunicator_loop_disable_reply_with_code, passCode)
                     receivedSms.processed = true
-                    messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
                         override fun run() {
-                            uel.log(Action.LOOP_DISABLED, Sources.SMS)
-                            (loop as PluginBase).setPluginEnabled(PluginType.LOOP, false)
-                            commandQueue.cancelTempBasal(true, object : Callback() {
-                                override fun run() {
-                                    rxBus.send(EventRefreshOverview("SMS_LOOP_STOP"))
-                                    val replyText = rh.gs(R.string.smscommunicator_loop_has_been_disabled) + " " +
-                                        rh.gs(if (result.success) R.string.smscommunicator_tempbasal_canceled else R.string.smscommunicator_tempbasal_cancel_failed)
-                                    sendSMS(Sms(receivedSms.phoneNumber, replyText))
-                                }
-                            })
+                            val result = loop.handleRunningModeChange(
+                                newRM = RM.Mode.DISABLED_LOOP,
+                                action = Action.LOOP_DISABLED,
+                                source = Sources.SMS,
+                                profile = profile
+                            )
+                            val replyText = rh.gs(R.string.smscommunicator_loop_has_been_disabled) + " " +
+                                rh.gs(if (result) R.string.smscommunicator_tempbasal_canceled else R.string.smscommunicator_tempbasal_cancel_failed)
+                            sendSMS(Sms(receivedSms.phoneNumber, replyText))
                         }
                     })
                 } else
@@ -425,55 +424,45 @@ class SmsCommunicatorPlugin @Inject constructor(
                 receivedSms.processed = true
             }
 
-            "ENABLE", "START" -> {
-                if (!loop.isEnabled()) {
-                    val passCode = generatePassCode()
-                    val reply = rh.gs(R.string.smscommunicator_loop_enable_reply_with_code, passCode)
-                    receivedSms.processed = true
-                    messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
-                        override fun run() {
-                            uel.log(Action.LOOP_ENABLED, Sources.SMS)
-                            (loop as PluginBase).setPluginEnabled(PluginType.LOOP, true)
-                            sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_loop_has_been_enabled)))
-                            rxBus.send(EventRefreshOverview("SMS_LOOP_START"))
-                        }
-                    })
-                } else
-                    sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_loop_is_enabled)))
-                receivedSms.processed = true
-            }
-
             "STATUS"          -> {
-                val reply = if (loop.isEnabled()) {
-                    if (loop.isSuspended) rh.gs(R.string.sms_loop_suspended_for, loop.minutesToEndOfSuspend())
-                    else rh.gs(R.string.smscommunicator_loop_is_enabled) + " - " + getApsModeText()
-                } else
-                    rh.gs(app.aaps.core.ui.R.string.loopisdisabled)
+                val reply =
+                    when (loop.runningMode) {
+                        RM.Mode.DISABLED_LOOP     -> rh.gs(app.aaps.core.ui.R.string.loopisdisabled)
+                        RM.Mode.OPEN_LOOP         -> rh.gs(R.string.smscommunicator_loop_is_enabled) + " - " + rh.gs(app.aaps.core.ui.R.string.openloop)
+                        RM.Mode.CLOSED_LOOP       -> rh.gs(R.string.smscommunicator_loop_is_enabled) + " - " + rh.gs(app.aaps.core.ui.R.string.closedloop)
+                        RM.Mode.CLOSED_LOOP_LGS   -> rh.gs(R.string.smscommunicator_loop_is_enabled) + " - " + rh.gs(app.aaps.core.ui.R.string.lowglucosesuspend)
+                        RM.Mode.SUPER_BOLUS       -> rh.gs(app.aaps.core.ui.R.string.superbolus)
+                        RM.Mode.DISCONNECTED_PUMP -> rh.gs(app.aaps.core.ui.R.string.pump_disconnected)
+                        RM.Mode.SUSPENDED_BY_PUMP -> rh.gs(app.aaps.core.ui.R.string.pumpsuspended)
+                        RM.Mode.SUSPENDED_BY_DST  -> rh.gs(app.aaps.core.ui.R.string.loop_suspended_by_dst)
+                        RM.Mode.SUSPENDED_BY_USER -> rh.gs(R.string.sms_loop_suspended_for, loop.minutesToEndOfSuspend())
+                        RM.Mode.RESUME            -> error("Invalid mode")
+                    }
                 sendSMS(Sms(receivedSms.phoneNumber, reply))
                 receivedSms.processed = true
             }
 
             "RESUME"          -> {
-                val passCode = generatePassCode()
-                val reply = rh.gs(R.string.smscommunicator_loop_resume_reply_with_code, passCode)
-                receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
-                    override fun run() {
-                        disposable += persistenceLayer.cancelCurrentOfflineEvent(dateUtil.now(), Action.RESUME, Sources.SMS).subscribe()
-                        rxBus.send(EventRefreshOverview("SMS_LOOP_RESUME"))
-                        commandQueue.cancelTempBasal(true, object : Callback() {
-                            override fun run() {
-                                if (!result.success) {
-                                    var replyText = rh.gs(R.string.smscommunicator_tempbasal_failed)
-                                    if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                        replyText += "\n" + activePlugin.activePump.shortStatus(true)
-                                    sendSMS(Sms(receivedSms.phoneNumber, replyText))
-                                }
-                            }
-                        })
-                        sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_loop_resumed)))
-                    }
-                })
+                if (loop.allowedNextModes().contains(RM.Mode.RESUME)) {
+                    val profile = profileFunction.getProfile() ?: return
+                    val passCode = generatePassCode()
+                    val reply = rh.gs(R.string.smscommunicator_loop_resume_reply_with_code, passCode)
+                    receivedSms.processed = true
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
+                        override fun run() {
+                            loop.handleRunningModeChange(
+                                newRM = RM.Mode.RESUME,
+                                action = Action.RESUME,
+                                source = Sources.SMS,
+                                profile = profile
+                            )
+                            sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_loop_resumed)))
+                        }
+                    })
+                } else {
+                    sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_command_not_possible)))
+                    return
+                }
             }
 
             "SUSPEND"         -> {
@@ -485,65 +474,86 @@ class SmsCommunicatorPlugin @Inject constructor(
                     receivedSms.processed = true
                     sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_wrong_duration)))
                     return
-                } else {
+                } else if (loop.allowedNextModes().contains(RM.Mode.SUSPENDED_BY_USER)) {
+                    val profile = profileFunction.getProfile() ?: return
                     val passCode = generatePassCode()
                     val reply = rh.gs(R.string.smscommunicator_suspend_reply_with_code, duration, passCode)
                     receivedSms.processed = true
-                    messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, duration) {
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, duration) {
                         override fun run() {
-                            commandQueue.cancelTempBasal(true, object : Callback() {
+                            commandQueue.cancelTempBasal(enforceNew = true, callback = object : Callback() {
                                 override fun run() {
                                     if (result.success) {
-                                        disposable += persistenceLayer.insertAndCancelCurrentOfflineEvent(
-                                            offlineEvent = OE(timestamp = dateUtil.now(), duration = T.mins(anInteger().toLong()).msecs(), reason = OE.Reason.SUSPEND),
+                                        loop.handleRunningModeChange(
+                                            newRM = RM.Mode.SUSPENDED_BY_USER,
+                                            durationInMinutes = anInteger(),
                                             action = Action.SUSPEND,
-                                            source = Sources.SMS
-                                        ).subscribe()
-                                        rxBus.send(EventRefreshOverview("SMS_LOOP_SUSPENDED"))
+                                            source = Sources.SMS,
+                                            profile = profile
+                                        )
                                         val replyText = rh.gs(R.string.smscommunicator_loop_suspended) + " " +
                                             rh.gs(if (result.success) R.string.smscommunicator_tempbasal_canceled else R.string.smscommunicator_tempbasal_cancel_failed)
                                         sendReport(receivedSms.phoneNumber, replyText)
                                     } else {
                                         var replyText = rh.gs(R.string.smscommunicator_tempbasal_cancel_failed)
                                         if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                            replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                            replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                         sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                     }
                                 }
                             })
                         }
                     })
+                } else {
+                    sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_command_not_possible)))
+                    return
                 }
             }
 
             "LGS"             -> {
-                val passCode = generatePassCode()
-                val reply = rh.gs(R.string.smscommunicator_set_lgs_reply_with_code, passCode)
-                receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
-                    override fun run() {
-                        uel.log(Action.LGS_LOOP_MODE, Sources.SMS)
-                        preferences.put(StringKey.LoopApsMode, ApsMode.LGS.name)
-                        rxBus.send(EventPreferenceChange(rh.gs(app.aaps.core.ui.R.string.lowglucosesuspend)))
-                        val replyText = rh.gs(R.string.smscommunicator_current_loop_mode, getApsModeText())
-                        sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, replyText))
-                    }
-                })
+                if (loop.allowedNextModes().contains(RM.Mode.CLOSED_LOOP_LGS)) {
+                    val passCode = generatePassCode()
+                    val reply = rh.gs(R.string.smscommunicator_set_lgs_reply_with_code, passCode)
+                    receivedSms.processed = true
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+                        override fun run() {
+                            loop.handleRunningModeChange(
+                                newRM = RM.Mode.CLOSED_LOOP_LGS,
+                                action = Action.LGS_LOOP_MODE,
+                                source = Sources.SMS,
+                                profile = profile
+                            )
+                            val replyText = rh.gs(R.string.smscommunicator_current_loop_mode, rh.gs(app.aaps.core.ui.R.string.lowglucosesuspend))
+                            sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, replyText))
+                        }
+                    })
+                } else {
+                    sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_command_not_possible)))
+                    return
+                }
             }
 
             "CLOSED"          -> {
-                val passCode = generatePassCode()
-                val reply = rh.gs(R.string.smscommunicator_set_closed_loop_reply_with_code, passCode)
-                receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
-                    override fun run() {
-                        uel.log(Action.CLOSED_LOOP_MODE, Sources.SMS)
-                        preferences.put(StringKey.LoopApsMode, ApsMode.CLOSED.name)
-                        rxBus.send(EventPreferenceChange(rh.gs(app.aaps.core.ui.R.string.closedloop)))
-                        val replyText = rh.gs(R.string.smscommunicator_current_loop_mode, getApsModeText())
-                        sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, replyText))
-                    }
-                })
+                if (loop.allowedNextModes().contains(RM.Mode.CLOSED_LOOP)) {
+                    val passCode = generatePassCode()
+                    val reply = rh.gs(R.string.smscommunicator_set_closed_loop_reply_with_code, passCode)
+                    receivedSms.processed = true
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+                        override fun run() {
+                            loop.handleRunningModeChange(
+                                newRM = RM.Mode.CLOSED_LOOP,
+                                action = Action.CLOSED_LOOP_MODE,
+                                source = Sources.SMS,
+                                profile = profile
+                            )
+                            val replyText = rh.gs(R.string.smscommunicator_current_loop_mode, rh.gs(app.aaps.core.ui.R.string.closedloop))
+                            sendSMSToAllNumbers(Sms(receivedSms.phoneNumber, replyText))
+                        }
+                    })
+                } else {
+                    sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_remote_command_not_possible)))
+                    return
+                }
             }
 
             else              -> sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.wrong_format)))
@@ -585,9 +595,8 @@ class SmsCommunicatorPlugin @Inject constructor(
         if (divided.size == 1) {
             commandQueue.readStatus(rh.gs(app.aaps.core.ui.R.string.sms), object : Callback() {
                 override fun run() {
-                    val pump = activePlugin.activePump
                     if (result.success) {
-                        val reply = pump.shortStatus(true)
+                        val reply = pumpStatusProvider.shortStatus(true)
                         sendSMS(Sms(receivedSms.phoneNumber, reply))
                     } else {
                         val reply = rh.gs(R.string.sms_read_status_failed)
@@ -597,24 +606,21 @@ class SmsCommunicatorPlugin @Inject constructor(
             })
             receivedSms.processed = true
         } else if ((divided.size == 2) && (divided[1].equals("CONNECT", ignoreCase = true))) {
-            val passCode = generatePassCode()
-            val reply = rh.gs(R.string.smscommunicator_pump_connect_with_code, passCode)
-            receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
-                override fun run() {
-                    commandQueue.cancelTempBasal(true, object : Callback() {
-                        override fun run() {
-                            if (!result.success) {
-                                sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_pump_connect_fail)))
-                            } else {
-                                disposable += persistenceLayer.cancelCurrentOfflineEvent(dateUtil.now(), Action.RECONNECT, Sources.SMS).subscribe()
-                                sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_reconnect)))
-                                rxBus.send(EventRefreshOverview("SMS_PUMP_START"))
-                            }
-                        }
-                    })
-                }
-            })
+            if (loop.allowedNextModes().contains(RM.Mode.RESUME)) {
+                val passCode = generatePassCode()
+                val reply = rh.gs(R.string.smscommunicator_pump_connect_with_code, passCode)
+                receivedSms.processed = true
+                messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
+                    override fun run() {
+                        val profile = profileFunction.getProfile() ?: return
+                        loop.handleRunningModeChange(newRM = RM.Mode.RESUME, action = Action.RECONNECT, source = Sources.SMS, profile = profile)
+                        sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_reconnect)))
+                    }
+                })
+            } else {
+                sendSMS(Sms(receivedSms.phoneNumber, rh.gs(app.aaps.core.interfaces.R.string.connected)))
+                return
+            }
         } else if ((divided.size == 3) && (divided[1].equals("DISCONNECT", ignoreCase = true))) {
             var duration = SafeParse.stringToInt(divided[2])
             duration = max(0, duration)
@@ -627,11 +633,16 @@ class SmsCommunicatorPlugin @Inject constructor(
                 val passCode = generatePassCode()
                 val reply = rh.gs(R.string.smscommunicator_pump_disconnect_with_code, duration, passCode)
                 receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
+                messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
                     override fun run() {
                         val profile = profileFunction.getProfile() ?: return
-                        loop.goToZeroTemp(durationInMinutes = duration, profile = profile, reason = OE.Reason.DISCONNECT_PUMP, action = Action.DISCONNECT, source = Sources.SMS)
-                        rxBus.send(EventRefreshOverview("SMS_PUMP_DISCONNECT"))
+                        loop.handleRunningModeChange(
+                            durationInMinutes = duration,
+                            profile = profile,
+                            newRM = RM.Mode.DISCONNECTED_PUMP,
+                            action = Action.DISCONNECT,
+                            source = Sources.SMS
+                        )
                         sendSMS(Sms(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_pump_disconnected)))
                     }
                 })
@@ -680,7 +691,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                     val reply = rh.gs(R.string.smscommunicator_profile_reply_with_code, list[pIndex - 1], percentage, passCode)
                     receivedSms.processed = true
                     val finalPercentage = percentage
-                    messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, list[pIndex - 1] as String, finalPercentage) {
+                    messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, list[pIndex - 1] as String, finalPercentage) {
                         override fun run() {
                             if (profileFunction.createProfileSwitch(
                                     profileStore = store,
@@ -713,21 +724,21 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_basal_stop_reply_with_code, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
                 override fun run() {
-                    commandQueue.cancelTempBasal(true, object : Callback() {
+                    commandQueue.cancelTempBasal(enforceNew = true, callback = object : Callback() {
                         override fun run() {
                             if (result.success) {
                                 sendReport(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_tempbasal_canceled),true)
-                                uel.log(Action.TEMP_BASAL, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_canceled),
+                                uel.log(Action.TEMP_BASAL, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_canceled),
                                         ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_tempbasal_canceled)))
                             } else {
                                 var replyText = rh.gs(R.string.smscommunicator_tempbasal_cancel_failed)
                                 if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                    replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                    replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                 sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                 uel.log(
-                                    Action.TEMP_BASAL, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_cancel_failed),
+                                    Action.TEMP_BASAL, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_cancel_failed),
                                     ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_tempbasal_cancel_failed))
                                 )
                             }
@@ -736,7 +747,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                 }
             })
         } else if (divided[1].endsWith("%")) {
-            var tempBasalPct = SafeParse.stringToInt(StringUtils.removeEnd(divided[1], "%"))
+            var tempBasalPct = SafeParse.stringToInt(Strings.CS.removeEnd(divided[1], "%"))
             val durationStep = activePlugin.activePump.model().tbrSettings()?.durationStep ?: 60
             var duration = 30
             if (divided.size > 2) duration = SafeParse.stringToInt(divided[2])
@@ -749,7 +760,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                 val passCode = generatePassCode()
                 val reply = rh.gs(R.string.smscommunicator_basal_pct_reply_with_code, tempBasalPct, duration, passCode)
                 receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, tempBasalPct, duration) {
+                messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, tempBasalPct, duration) {
                     override fun run() {
                         commandQueue.tempBasalPercent(anInteger(), secondInteger(), true, profile, PumpSync.TemporaryBasalType.NORMAL, object : Callback() {
                             override fun run() {
@@ -764,7 +775,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                     if (result.isPercent)
                                         uel.log(
                                             action = Action.TEMP_BASAL, source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set_percent, result.percent, result.duration),
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set_percent, result.percent, result.duration),
                                             listValues = listOf(
                                                 ValueWithUnit.Percent(result.percent),
                                                 ValueWithUnit.Minute(result.duration)
@@ -775,7 +786,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         uel.log(
                                             action = Action.TEMP_BASAL,
                                             source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set, result.absolute, result.duration),
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set, result.absolute, result.duration),
                                             listValues = listOf(
                                                 ValueWithUnit.UnitPerHour(result.absolute),
                                                 ValueWithUnit.Minute(result.duration)
@@ -784,10 +795,10 @@ class SmsCommunicatorPlugin @Inject constructor(
                                 } else {
                                     var replyText = rh.gs(R.string.smscommunicator_tempbasal_failed)
                                     if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                        replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                        replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                     sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                     uel.log(
-                                        Action.TEMP_BASAL, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_failed),
+                                        Action.TEMP_BASAL, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_failed),
                                         ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_tempbasal_failed))
                                     )
                                 }
@@ -810,7 +821,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                 val passCode = generatePassCode()
                 val reply = rh.gs(R.string.smscommunicator_basal_reply_with_code, tempBasal, duration, passCode)
                 receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, tempBasal, duration) {
+                messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, tempBasal, duration) {
                     override fun run() {
                         commandQueue.tempBasalAbsolute(aDouble(), secondInteger(), true, profile, PumpSync.TemporaryBasalType.NORMAL, object : Callback() {
                             override fun run() {
@@ -823,7 +834,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         uel.log(
                                             action = Action.TEMP_BASAL,
                                             source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set_percent, result.percent, result.duration),
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set_percent, result.percent, result.duration),
                                             listValues = listOf(
                                                 ValueWithUnit.Percent(result.percent),
                                                 ValueWithUnit.Minute(result.duration)
@@ -833,7 +844,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         uel.log(
                                             action = Action.TEMP_BASAL,
                                             source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set, result.absolute, result.duration),
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_set, result.absolute, result.duration),
                                             listValues = listOf(
                                                 ValueWithUnit.UnitPerHour(result.absolute),
                                                 ValueWithUnit.Minute(result.duration)
@@ -842,10 +853,10 @@ class SmsCommunicatorPlugin @Inject constructor(
                                 } else {
                                     var replyText = rh.gs(R.string.smscommunicator_tempbasal_failed)
                                     if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                        replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                        replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                     sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                     uel.log(
-                                        Action.TEMP_BASAL, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_failed),
+                                        Action.TEMP_BASAL, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_tempbasal_failed),
                                         ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_tempbasal_failed))
                                     )
                                 }
@@ -862,7 +873,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_extended_stop_reply_with_code, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true) {
                 override fun run() {
                     commandQueue.cancelExtended(object : Callback() {
                         override fun run() {
@@ -871,10 +882,10 @@ class SmsCommunicatorPlugin @Inject constructor(
                             } else {
                                 var replyText = rh.gs(R.string.smscommunicator_extended_cancel_failed)
                                 if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                    replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                    replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                 sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                 uel.log(
-                                    Action.EXTENDED_BOLUS, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_canceled),
+                                    Action.EXTENDED_BOLUS, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_canceled),
                                     ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_extended_canceled))
                                 )
                             }
@@ -893,7 +904,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                 val passCode = generatePassCode()
                 val reply = rh.gs(R.string.smscommunicator_extended_reply_with_code, extended, duration, passCode)
                 receivedSms.processed = true
-                messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, extended, duration) {
+                messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, extended, duration) {
                     override fun run() {
                         commandQueue.extendedBolus(aDouble(), secondInteger(), object : Callback() {
                             override fun run() {
@@ -905,7 +916,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         uel.log(
                                             action = Action.EXTENDED_BOLUS,
                                             source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(
                                                 R.string.smscommunicator_extended_set,
                                                 aDouble,
                                                 duration
@@ -920,7 +931,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         uel.log(
                                             action = Action.EXTENDED_BOLUS,
                                             source = Sources.SMS,
-                                            note = activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_set, aDouble, duration),
+                                            note = pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_set, aDouble, duration),
                                             listValues = listOf(
                                                 ValueWithUnit.Insulin(aDouble ?: 0.0),
                                                 ValueWithUnit.Minute(duration)
@@ -929,10 +940,10 @@ class SmsCommunicatorPlugin @Inject constructor(
                                 } else {
                                     var replyText = rh.gs(R.string.smscommunicator_extended_failed)
                                     if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                        replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                        replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                     sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                     uel.log(
-                                        Action.EXTENDED_BOLUS, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_failed),
+                                        Action.EXTENDED_BOLUS, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_extended_failed),
                                         ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_extended_failed))
                                     )
                                 }
@@ -957,7 +968,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             else
                 rh.gs(R.string.smscommunicator_bolus_reply_with_code, bolus, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, bolus) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, bolus) {
                 override fun run() {
                     val detailedBolusInfo = DetailedBolusInfo()
                     detailedBolusInfo.insulin = aDouble()
@@ -973,7 +984,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                                         else
                                             rh.gs(R.string.smscommunicator_bolus_delivered, resultBolusDelivered)
                                         if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                            replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                            replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                         lastRemoteBolusTime = dateUtil.now()
                                         if (isMeal) {
                                             profileFunction.getProfile()?.let { currentProfile ->
@@ -1007,10 +1018,10 @@ class SmsCommunicatorPlugin @Inject constructor(
                                     } else {
                                         var replyText = rh.gs(R.string.smscommunicator_bolus_failed)
                                         if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                            replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                            replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                         sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                         uel.log(
-                                            Action.BOLUS, Sources.SMS, activePlugin.activePump.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_bolus_failed),
+                                            Action.BOLUS, Sources.SMS, pumpStatusProvider.shortStatus(true) + "\n" + rh.gs(R.string.smscommunicator_bolus_failed),
                                             ValueWithUnit.SimpleString(rh.gsNotLocalised(R.string.smscommunicator_bolus_failed))
                                         )
                                     }
@@ -1058,7 +1069,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_carbs_reply_with_code, grams, dateUtil.timeString(time), passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, grams, time) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = true, grams, time) {
                 override fun run() {
                     val detailedBolusInfo = DetailedBolusInfo()
                     detailedBolusInfo.carbs = anInteger().toDouble()
@@ -1068,16 +1079,16 @@ class SmsCommunicatorPlugin @Inject constructor(
                             if (result.success) {
                                 sendReport(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_carbs_set, anInteger), true)
                                 uel.log(
-                                    Action.CARBS, Sources.SMS, activePlugin.activePump.shortStatus(true) + ": " + rh.gs(R.string.smscommunicator_carbs_set, anInteger),
+                                    Action.CARBS, Sources.SMS, pumpStatusProvider.shortStatus(true) + ": " + rh.gs(R.string.smscommunicator_carbs_set, anInteger),
                                     ValueWithUnit.Gram(anInteger ?: 0)
                                 )
                             } else {
                                 var replyText = rh.gs(R.string.smscommunicator_carbs_failed, anInteger)
                                 if (preferences.get(BooleanKey.SmsAddPumpStatus))
-                                    replyText += "\n" + activePlugin.activePump.shortStatus(true)
+                                    replyText += "\n" + pumpStatusProvider.shortStatus(true)
                                 sendSMS(Sms(receivedSms.phoneNumber, replyText))
                                 uel.log(
-                                    Action.CARBS, Sources.SMS, activePlugin.activePump.shortStatus(true) + ": " + rh.gs(R.string.smscommunicator_carbs_failed, anInteger),
+                                    Action.CARBS, Sources.SMS, pumpStatusProvider.shortStatus(true) + ": " + rh.gs(R.string.smscommunicator_carbs_failed, anInteger),
                                     ValueWithUnit.Gram(anInteger ?: 0)
                                 )
                             }
@@ -1097,7 +1108,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_temptarget_with_code, divided[1].uppercase(Locale.getDefault()), passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
                 override fun run() {
                     val units = profileUtil.units
                     var reason = TT.Reason.EATING_SOON
@@ -1146,7 +1157,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_temptarget_cancel, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
                 override fun run() {
                     disposable += persistenceLayer.cancelCurrentTemporaryTargetIfAny(
                         timestamp = dateUtil.now(),
@@ -1173,7 +1184,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_stops_ns_with_code, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false) {
                 override fun run() {
                     preferences.put(BooleanKey.SmsAllowRemoteCommands, false)
                     sendReport(receivedSms.phoneNumber, rh.gs(R.string.smscommunicator_stopped_sms))
@@ -1192,7 +1203,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             val passCode = generatePassCode()
             val reply = rh.gs(R.string.smscommunicator_calibration_reply_with_code, cal, passCode)
             receivedSms.processed = true
-            messageToConfirm = AuthRequest(injector, receivedSms, reply, passCode, object : SmsAction(pumpCommand = false, cal) {
+            messageToConfirm = authRequestProvider.get().with(receivedSms, reply, passCode, object : SmsAction(pumpCommand = false, cal) {
                 override fun run() {
                     val result = xDripBroadcast.sendCalibration(aDouble!!)
                     val replyText =
@@ -1310,14 +1321,6 @@ class SmsCommunicatorPlugin @Inject constructor(
             knownNumbers.size > 1
         } == true
     }
-
-    private fun getApsModeText(): String =
-        when (ApsMode.fromString(preferences.get(StringKey.LoopApsMode))) {
-            ApsMode.OPEN   -> rh.gs(app.aaps.core.ui.R.string.openloop)
-            ApsMode.CLOSED -> rh.gs(app.aaps.core.ui.R.string.closedloop)
-            ApsMode.LGS    -> rh.gs(app.aaps.core.ui.R.string.lowglucosesuspend)
-            else           -> rh.gs(app.aaps.core.ui.R.string.unknown)
-        }
 
     override fun addPreferenceScreen(preferenceManager: PreferenceManager, parent: PreferenceScreen, context: Context, requiredKey: String?) {
         if (requiredKey != null) return

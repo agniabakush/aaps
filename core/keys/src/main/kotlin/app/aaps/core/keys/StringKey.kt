@@ -37,7 +37,6 @@ enum class StringKey(
     OverviewCopySettingsFromNs(key = "statuslights_copy_ns", "", dependency = BooleanKey.OverviewShowStatusLights),
 
     SafetyAge("age", "adult"),
-    LoopApsMode("aps_mode", "OPEN" /* ApsMode.OPEN.name */),
     MaintenanceEmail("maintenance_logs_email", "logs@aaps.app", defaultedBySM = true),
     MaintenanceIdentification("email_for_crash_report", ""),
     AutomationLocation("location", "PASSIVE", hideParentScreenIfHidden = true),
@@ -51,9 +50,6 @@ enum class StringKey(
     NsClientApiSecret("nsclientinternal_api_secret", "", isPassword = true),
     NsClientWifiSsids("ns_wifi_ssids", "", dependency = BooleanKey.NsClientUseWifi),
     NsClientAccessToken("nsclient_token", "", isPassword = true),
-    TidepoolUsername("tidepool_username", ""),
-    TidepoolPassword("tidepool_password", "", isPassword = true),
-    TidepoolTestLogin(key = "tidepool_test_login", ""),
 
     NightModeBegin("night_mode_begin", "22:00", dependency = BooleanKey.NightMode),
     NightModeEnd("night_mode_end", "06:00", dependency = BooleanKey.NightMode),

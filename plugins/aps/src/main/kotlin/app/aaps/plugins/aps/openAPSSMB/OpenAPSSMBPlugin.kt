@@ -2,9 +2,9 @@ package app.aaps.plugins.aps.openAPSSMB
 
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.util.LongSparseArray
-import androidx.core.util.forEach
+import androidx.collection.LongSparseArray
+import androidx.collection.forEach
+import androidx.core.net.toUri
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.PreferenceManager
@@ -63,6 +63,7 @@ import app.aaps.core.objects.extensions.store
 import app.aaps.core.objects.extensions.target
 import app.aaps.core.objects.profile.ProfileSealed
 import app.aaps.core.utils.MidnightUtils
+import app.aaps.core.utils.extensions.put
 import app.aaps.core.validators.preferences.AdaptiveDoublePreference
 import app.aaps.core.validators.preferences.AdaptiveIntPreference
 import app.aaps.core.validators.preferences.AdaptiveIntentPreference
@@ -76,6 +77,7 @@ import app.aaps.plugins.aps.openAPS.TddStatus
 import dagger.android.HasAndroidInjector
 import org.json.JSONObject
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import kotlin.math.floor
 import kotlin.math.ln
@@ -103,6 +105,8 @@ open class OpenAPSSMBPlugin @Inject constructor(
     private val uiInteraction: UiInteraction,
     private val determineBasalSMB: DetermineBasalSMB,
     private val profiler: Profiler,
+    private val glucoseStatusCalculatorSMB: GlucoseStatusCalculatorSMB,
+    private val apsResultProvider: Provider<APSResult>
 ) : PluginBase(
     PluginDescription()
         .mainType(PluginType.APS)
@@ -136,7 +140,7 @@ open class OpenAPSSMBPlugin @Inject constructor(
     // last values
     override var lastAPSRun: Long = 0
     override val algorithm = APSResult.Algorithm.SMB
-    override var lastAPSResult: DetermineBasalResult? = null
+    override var lastAPSResult: APSResult? = null
     override fun supportsDynamicIsf(): Boolean = preferences.get(BooleanKey.ApsUseDynamicSensitivity)
 
     override fun getIsfMgdl(profile: Profile, caller: String): Double? {
@@ -583,7 +587,7 @@ open class OpenAPSSMBPlugin @Inject constructor(
             dynIsfMode = dynIsfMode,
             smb_ratio = getSmbRatio(targetBg)
         ).also {
-            val determineBasalResult = DetermineBasalResult(injector, it)
+            val determineBasalResult = apsResultProvider.get().with(it)
             // Preserve input data
             determineBasalResult.inputConstraints = inputConstraints
             determineBasalResult.autosensResult = autosensResult
@@ -600,6 +604,8 @@ open class OpenAPSSMBPlugin @Inject constructor(
 
         rxBus.send(EventOpenAPSUpdateGui())
     }
+
+    override fun getGlucoseStatusData(allowOldData: Boolean): GlucoseStatus? = glucoseStatusCalculatorSMB.getGlucoseStatusData(allowOldData)
 
     override fun isSuperBolusEnabled(value: Constraint<Boolean>): Constraint<Boolean> {
         value.set(false)
@@ -727,7 +733,7 @@ open class OpenAPSSMBPlugin @Inject constructor(
                     AdaptiveIntentPreference(
                         ctx = context,
                         intentKey = IntentKey.ApsLinkToDocs,
-                        intent = Intent().apply { action = Intent.ACTION_VIEW; data = Uri.parse(rh.gs(R.string.openapsama_link_to_preference_json_doc)) },
+                        intent = Intent().apply { action = Intent.ACTION_VIEW; data = rh.gs(R.string.openapsama_link_to_preference_json_doc).toUri() },
                         summary = R.string.openapsama_link_to_preference_json_doc_txt
                     )
                 )

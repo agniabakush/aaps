@@ -18,9 +18,9 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.InjectMocks
 import org.mockito.Mock
-import org.mockito.Mockito.`when`
 import org.mockito.junit.jupiter.MockitoExtension
 import org.mockito.kotlin.any
+import org.mockito.kotlin.whenever
 
 @ExtendWith(MockitoExtension::class)
 class UploadChunkTest {
@@ -28,8 +28,14 @@ class UploadChunkTest {
     @Mock lateinit var preferences: Preferences
     @Mock lateinit var rxBus: RxBus
     @Mock lateinit var aapsLogger: AAPSLogger
+
+    @Suppress("unused")
     @Mock lateinit var profileFunction: ProfileFunction
+
+    @Suppress("unused")
     @Mock lateinit var profileUtil: ProfileUtil
+
+    @Suppress("unused")
     @Mock lateinit var activePlugin: ActivePlugin
     @Mock lateinit var persistenceLayer: PersistenceLayer
     @Mock lateinit var dateUtil: DateUtil
@@ -43,8 +49,8 @@ class UploadChunkTest {
             BS(timestamp = 100, amount = 7.5, type = BS.Type.NORMAL),
             BS(timestamp = 200, amount = 0.5, type = BS.Type.SMB)
         )
-        `when`(persistenceLayer.getBolusesFromTimeToTime(any(), any(), any())).thenReturn(boluses)
-        `when`(persistenceLayer.getTherapyEventDataFromToTime(any(), any())).thenReturn(Single.just(listOf()))
+        whenever(persistenceLayer.getBolusesFromTimeToTime(any(), any(), any())).thenReturn(boluses)
+        whenever(persistenceLayer.getTherapyEventDataFromToTime(any(), any())).thenReturn(Single.just(listOf()))
 
         // when
         val resultJson = sut.get(1, 500)

@@ -42,6 +42,7 @@ import app.aaps.plugins.automation.actions.ActionNotification
 import app.aaps.plugins.automation.actions.ActionProfileSwitch
 import app.aaps.plugins.automation.actions.ActionProfileSwitchPercent
 import app.aaps.plugins.automation.actions.ActionRunAutotune
+import app.aaps.plugins.automation.actions.ActionSMBChange
 import app.aaps.plugins.automation.actions.ActionSendSMS
 import app.aaps.plugins.automation.actions.ActionSettingsExport
 import app.aaps.plugins.automation.actions.ActionStartTempTarget
@@ -197,7 +198,8 @@ class AutomationPlugin @Inject constructor(
 
     override fun onStop() {
         disposable.clear()
-        handler?.removeCallbacks(refreshLoop)
+        handler?.removeCallbacksAndMessages(null)
+        handler?.looper?.quit()
         handler = null
         locationServiceHelper.stopService(context)
         super.onStop()
@@ -239,28 +241,36 @@ class AutomationPlugin @Inject constructor(
 
     internal fun processActions() {
         if (!config.appInitialized) return
+        /**
+         * Changed to false if some condition prevents automation from running.
+         * In this case only system automations are enabled.
+         */
         var commonEventsEnabled = true
-        if (loop.isSuspended || !(loop as PluginBase).isEnabled()) {
-            aapsLogger.debug(LTag.AUTOMATION, "Loop deactivated")
-            executionLog.add(rh.gs(app.aaps.core.ui.R.string.loopisdisabled))
+        /*
+         * Running mode must report running to process automation events.
+         */
+        if (loop.runningMode.isSuspended() || !loop.runningMode.isLoopRunning()) {
+            aapsLogger.debug(LTag.AUTOMATION, "Loop suspended")
+            executionLog.add(rh.gs(app.aaps.core.ui.R.string.loopsuspended))
             rxBus.send(EventAutomationUpdateGui())
             commonEventsEnabled = false
         }
-        if (loop.isDisconnected || !(loop as PluginBase).isEnabled()) {
-            aapsLogger.debug(LTag.AUTOMATION, "Loop disconnected")
+        /*
+         * Loop must be enabled to process automation events.
+         */
+        if (!(loop as PluginBase).isEnabled()) {
+            aapsLogger.debug(LTag.AUTOMATION, "Loop not enabled")
             executionLog.add(rh.gs(app.aaps.core.ui.R.string.disconnected))
             rxBus.send(EventAutomationUpdateGui())
             commonEventsEnabled = false
         }
-        if (activePlugin.activePump.isSuspended()) {
-            aapsLogger.debug(LTag.AUTOMATION, "Pump suspended")
-            executionLog.add(rh.gs(app.aaps.core.ui.R.string.waitingforpump))
-            rxBus.send(EventAutomationUpdateGui())
-            commonEventsEnabled = false
-        }
+        /*
+         * Constraints must not block automation
+         */
         val enabled = constraintChecker.isAutomationEnabled()
         if (!enabled.value()) {
-            executionLog.add(enabled.getMostLimitedReasons())
+            val reason = enabled.getMostLimitedReasons()
+            if (executionLog.lastOrNull() != reason) executionLog.add(reason)
             rxBus.send(EventAutomationUpdateGui())
             commonEventsEnabled = false
         }
@@ -276,10 +286,12 @@ class AutomationPlugin @Inject constructor(
                 }
         }
 
-        // we cannot detect connected BT devices
-        // so let's collect all connection/disconnections between 2 runs of processActions()
-        // TriggerBTDevice can pick up and process these events
-        // after processing clear events to prevent repeated actions
+        /*
+         * We cannot detect connected BT devices
+         * So, let's collect all connection/disconnections between 2 runs of processActions()
+         * TriggerBTDevice can pick up and process these events
+         * after processing clear events to prevent repeated actions
+         */
         btConnects.clear()
 
         storeToSP() // save last run time
@@ -379,10 +391,6 @@ class AutomationPlugin @Inject constructor(
 
     fun getActionDummyObjects(): List<Action> {
         val actions = mutableListOf(
-            //ActionLoopDisable(injector),
-            //ActionLoopEnable(injector),
-            //ActionLoopResume(injector),
-            //ActionLoopSuspend(injector),
             ActionStopProcessing(injector),
             ActionStartTempTarget(injector),
             ActionStopTempTarget(injector),
@@ -393,6 +401,7 @@ class AutomationPlugin @Inject constructor(
             ActionProfileSwitchPercent(injector),
             ActionProfileSwitch(injector),
             ActionSendSMS(injector),
+            ActionSMBChange(injector),
             ActionRunAutotune(injector)
         )
 
