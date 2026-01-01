@@ -103,8 +103,6 @@ class AutotunePlugin @Inject constructor(
     val days = WeekDay()
     val autotuneStartHour: Int = 4
 
-    override fun specialEnableCondition(): Boolean = config.isEngineeringMode() && config.isDev() || config.enableAutotune()
-
     override fun aapsAutotune(daysBack: Int, autoSwitch: Boolean, profileToTune: String, weekDays: BooleanArray?) {
         lastRunSuccess = false
         if (calculationRunning) {
