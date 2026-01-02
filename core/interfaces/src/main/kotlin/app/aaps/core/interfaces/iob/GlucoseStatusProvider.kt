@@ -2,8 +2,7 @@ package app.aaps.core.interfaces.iob
 
 import app.aaps.core.interfaces.aps.GlucoseStatus
 
-interface
-GlucoseStatusProvider {
+interface GlucoseStatusProvider {
 
     /**
      * Glucose status data calculated by APS plugin.
