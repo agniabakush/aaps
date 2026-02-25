@@ -194,12 +194,6 @@ class DetermineBasalBoost @Inject constructor(
         val noise = glucose_status.noise
 
         // =====================================================================
-        // Step counter logging
-        // =====================================================================
-        consoleError.add("Step counts: 5m=${profile.recentSteps5Minutes} 15m=${profile.recentSteps15Minutes} 30m=${profile.recentSteps30Minutes} 60m=${profile.recentSteps60Minutes}")
-        consoleError.add("Profile % ${profile.profileSwitch}")
-
-        // =====================================================================
         // BG validation
         // =====================================================================
         if (bg <= 10 || bg == 38.0 || noise >= 3) {
@@ -248,14 +242,9 @@ class DetermineBasalBoost @Inject constructor(
         // =====================================================================
         // Boost Dynamic ISF for predictions
         // =====================================================================
-        consoleError.add("---------------------------------------------------------")
-        consoleError.add("     Boost version: 4.1.5 (Kotlin)")
-        consoleError.add("---------------------------------------------------------")
-
-        // Boost status summary
-        val boostActiveEarly = profile.boostActive
-        consoleError.add("Boost active: $boostActiveEarly")
-        consoleError.add("Profile %: ${profile.profileSwitch}")
+        consoleError.add("═════════════════════════════════════════════════════════")
+        consoleError.add("  Boost v4.1.5 (Kotlin) | Profile: ${profile.profileSwitch}%")
+        consoleError.add("═════════════════════════════════════════════════════════")
 
         // Boost window reasoning from plugin
         if (profile.boostDebugReason.isNotEmpty()) {
@@ -264,36 +253,39 @@ class DetermineBasalBoost @Inject constructor(
             }
         }
 
-        // Glucose status
+        // ── Glucose ──
+        consoleError.add("── Glucose ─────────────────────────────────")
         consoleError.add("BG: $bg mg/dl | Delta: ${round(glucose_status.delta, 1)} | Short avg: ${round(glucose_status.shortAvgDelta, 1)} | Long avg: ${round(glucose_status.longAvgDelta, 1)}")
         consoleError.add("Delta acceleration: $delta_accl%")
 
-        // Targets
-        consoleError.add("Targets: min=$min_bg max=$max_bg target=$target_bg (TT: ${profile.temptargetSet})")
+        // ── Targets ──
+        consoleError.add("── Targets ─────────────────────────────────")
+        consoleError.add("min=$min_bg max=$max_bg target=$target_bg (TT: ${profile.temptargetSet})")
 
-        // Dynamic ISF summary
-        consoleError.add("ISF: profile sens=${profile.sens} | variable_sens=${profile.variable_sens} | sensNormalTarget=${profile.sensNormalTarget}")
-        consoleError.add("DynISF: normalTarget=${profile.normalTarget} | velocity=${profile.dynISFvelocity} | bgCap=${profile.dynISFBgCap} | bgCapped=${profile.dynISFBgCapped}")
+        // ── ISF ──
+        consoleError.add("── ISF ─────────────────────────────────────")
+        consoleError.add("Profile sens: ${round(profile.sens, 1)} | Variable sens: ${round(profile.variable_sens, 1)} | sensNormalTarget: ${round(profile.sensNormalTarget, 1)}")
+        consoleError.add("DynISF: normalTarget=${profile.normalTarget} | velocity=${profile.dynISFvelocity} | bgCap=${round(profile.dynISFBgCap, 1)} | bgCapped=${profile.dynISFBgCapped}")
         if (profile.TDD > 0) consoleError.add("TDD: ${round(profile.TDD, 1)} | ISF from TDD formula")
         else consoleError.add("TDD: not used (profile ISF)")
 
         // ISF calculation reasoning from plugin
         if (profile.isfDebugReason.isNotEmpty()) {
-            consoleError.add("----- ISF Calculation -----")
             for (line in profile.isfDebugReason.split("\n")) {
-                consoleError.add(line)
+                consoleError.add("  $line")
             }
         }
 
-        // Boost parameters
-        consoleError.add("Boost params: bolus=${profile.boost_bolus} | maxIOB=${profile.boost_maxIOB} | scale=${profile.boost_scale} | insulinReq%=${profile.Boost_InsulinReq}")
-        consoleError.add("Boost percent scale: ${profile.enableBoostPercentScale} (${profile.boost_percent_scale})")
-        consoleError.add("Circadian ISF: ${profile.enableCircadianISF}")
+        // ── Boost Config ──
+        consoleError.add("── Boost Config ────────────────────────────")
+        consoleError.add("Bolus cap: ${profile.boost_bolus} | maxIOB: ${profile.boost_maxIOB} | scale: ${round(profile.boost_scale, 2)} | insulinReq%: ${profile.Boost_InsulinReq}")
+        consoleError.add("Percent scale: ${profile.enableBoostPercentScale} (${profile.boost_percent_scale}) | Circadian ISF: ${profile.enableCircadianISF}")
 
-        // IOB/COB
+        // ── State ──
+        consoleError.add("── State ───────────────────────────────────")
         consoleError.add("IOB: ${round(iob_data_array[0].iob, 2)} | Activity: ${round(iob_data_array[0].activity, 4)} | COB: ${meal_data.mealCOB}")
         consoleError.add("SMB allowed: $microBolusAllowed | Flat BGs: $flatBGsDetected")
-        consoleError.add("---------------------------------------------------------")
+        consoleError.add("═════════════════════════════════════════════════════════")
 
         val insulinPeak = profile.insulinPeak
         val ins_val = profile.insulinDivisor
@@ -405,7 +397,7 @@ class DetermineBasalBoost @Inject constructor(
         val maxDelta = max(glucose_status.delta, max(glucose_status.shortAvgDelta, glucose_status.longAvgDelta))
 
         val eRatio = round(sens / 13.2)
-        consoleError.add("CR:$eRatio")
+        consoleError.add("Effective CR: $eRatio")
 
         // calculate BG impact
         val bgi = round((-iob_data.activity * sens * 5), 2)
@@ -455,19 +447,21 @@ class DetermineBasalBoost @Inject constructor(
         // =====================================================================
         // Threshold - Boost modification: lower threshold when delta accelerating
         // =====================================================================
+        consoleError.add("── Threshold ───────────────────────────────")
         var threshold = min_bg - 0.5 * (min_bg - 40)
         if (profile.lgsThreshold != null) {
             val lgsThreshold = profile.lgsThreshold ?: error("lgsThreshold missing")
             if (lgsThreshold > threshold) {
-                consoleError.add("Threshold set from ${convert_bg(threshold)} to ${convert_bg(lgsThreshold.toDouble())}")
+                consoleError.add("Threshold raised from ${convert_bg(threshold)} to ${convert_bg(lgsThreshold.toDouble())}")
                 threshold = lgsThreshold.toDouble()
             }
         }
         // Boost: lower threshold when BG is accelerating upward
         if (delta_accl > 0) {
             threshold = 65.0
+            consoleError.add("Threshold lowered to ${convert_bg(threshold)} (delta accelerating)")
         }
-        consoleError.add("Low glucose suspend threshold: ${convert_bg(threshold)}")
+        consoleError.add("LGS threshold: ${convert_bg(threshold)}")
 
         // =====================================================================
         // RT object initialization
@@ -512,7 +506,7 @@ class DetermineBasalBoost @Inject constructor(
 
         // Boost uses profile.sens for CSF (not autosens-adjusted)
         val csf = profile.sens / profile.carb_ratio
-        consoleError.add("profile.sens: ${profile.sens}, sens: $sens, CSF: $csf")
+        consoleError.add("profile.sens: ${round(profile.sens, 1)}, sens: ${round(sens, 1)}, CSF: ${round(csf, 2)}")
 
         val maxCarbAbsorptionRate = 30
         val maxCI = round(maxCarbAbsorptionRate * csf * 5.0 / 60, 1)
@@ -530,7 +524,7 @@ class DetermineBasalBoost @Inject constructor(
             val fractionCOBAbsorbed = (meal_data.carbs - meal_data.mealCOB) / meal_data.carbs
             remainingCATime = remainingCATimeMin + 1.5 * lastCarbAge / 60
             remainingCATime = round(remainingCATime, 1)
-            consoleError.add("Last carbs ${lastCarbAge}minutes ago; remainingCATime:${remainingCATime}hours;${round(fractionCOBAbsorbed * 100)}% carbs absorbed")
+            consoleError.add("Last carbs ${lastCarbAge} minutes ago; remainingCATime: ${remainingCATime}hours; ${round(fractionCOBAbsorbed * 100)}% carbs absorbed")
         }
 
         val totalCI = Math.max(0.0, ci / 5 * 60 * remainingCATime / 2)
@@ -798,7 +792,7 @@ class DetermineBasalBoost @Inject constructor(
         consoleLog.add("minPredBG: $minPredBG minIOBPredBG: $minIOBPredBG minZTGuardBG: $minZTGuardBG")
         if (minCOBPredBG < 999) consoleLog.add(" minCOBPredBG: $minCOBPredBG")
         if (minUAMPredBG < 999) consoleLog.add(" minUAMPredBG: $minUAMPredBG")
-        consoleError.add(" avgPredBG: $avgPredBG COB: ${meal_data.mealCOB} / ${meal_data.carbs}")
+        consoleError.add("avgPredBG: ${round(avgPredBG, 0)} | COB: ${round(meal_data.mealCOB, 1)} / ${round(meal_data.carbs, 1)}")
         if (maxCOBPredBG > bg) {
             minPredBG = min(minPredBG, maxCOBPredBG)
         }
@@ -852,16 +846,17 @@ class DetermineBasalBoost @Inject constructor(
             enableSMB = false
         }
 
-        consoleError.add("BG projected to remain above ${convert_bg(min_bg)} for $minutesAboveMinBG minutes")
+        consoleError.add("── Predictions ─────────────────────────────")
+        consoleError.add("Above min_bg (${convert_bg(min_bg)}): ${minutesAboveMinBG}m")
         if (minutesAboveThreshold < 240 || minutesAboveMinBG < 60) {
-            consoleError.add("BG projected to remain above ${convert_bg(threshold)} for $minutesAboveThreshold minutes")
+            consoleError.add("Above threshold (${convert_bg(threshold)}): ${minutesAboveThreshold}m")
         }
         val zeroTempDuration = minutesAboveThreshold
         val zeroTempEffectDouble = profile.current_basal * sens * zeroTempDuration / 60
         val COBforCarbsReq = max(0.0, meal_data.mealCOB - 0.25 * meal_data.carbs)
         val carbsReq = round(((bgUndershoot - zeroTempEffectDouble) / csf - COBforCarbsReq))
         val zeroTempEffect = round(zeroTempEffectDouble)
-        consoleError.add("naive_eventualBG: $naive_eventualBG bgUndershoot: $bgUndershoot zeroTempDuration $zeroTempDuration zeroTempEffect: $zeroTempEffect carbsReq: $carbsReq")
+        consoleError.add("naive_eventualBG: ${round(naive_eventualBG, 0)} | bgUndershoot: ${round(bgUndershoot, 1)} | zeroTempDuration: ${zeroTempDuration}m | zeroTempEffect: $zeroTempEffect | carbsReq: $carbsReq")
         if (carbsReq >= profile.carbsReqThreshold && minutesAboveThreshold <= 45) {
             rT.carbsReq = carbsReq
             rT.carbsReqWithin = minutesAboveThreshold
@@ -1028,11 +1023,10 @@ class DetermineBasalBoost @Inject constructor(
                 val mealInsulinReq = round(meal_data.mealCOB / profile.carb_ratio, 3)
                 var maxBolus: Double
                 if (iob_data.iob > -0.2) {
-                    consoleError.add("IOB ${iob_data.iob} > COB ${meal_data.mealCOB}; mealInsulinReq = $mealInsulinReq")
-                    consoleError.add("profile.maxUAMSMBBasalMinutes: ${profile.maxUAMSMBBasalMinutes} profile.current_basal: ${profile.current_basal}")
+                    consoleError.add("IOB ${round(iob_data.iob, 2)} > -0.2; maxUAMSMBBasalMinutes: ${profile.maxUAMSMBBasalMinutes} × basal ${round(profile.current_basal, 2)}")
                     maxBolus = round(profile.current_basal * profile.maxUAMSMBBasalMinutes / 60.0, 1)
                 } else {
-                    consoleError.add("profile.maxSMBBasalMinutes: ${profile.maxSMBBasalMinutes} profile.current_basal: ${profile.current_basal}")
+                    consoleError.add("IOB ${round(iob_data.iob, 2)} ≤ -0.2; maxSMBBasalMinutes: ${profile.maxSMBBasalMinutes} × basal ${round(profile.current_basal, 2)}")
                     maxBolus = round(profile.current_basal * profile.maxSMBBasalMinutes / 60.0, 1)
                 }
 
@@ -1043,7 +1037,6 @@ class DetermineBasalBoost @Inject constructor(
                 val profileSwitch = profile.profileSwitch
 
                 var insulinReqPCT = 100.0 / profile.Boost_InsulinReq
-                consoleError.add("Insulin required = ${(1.0 / insulinReqPCT) * 100}%")
                 val insulinPCTsubtract = insulinReqPCT - 1
 
                 // Sliding scale variables
@@ -1054,7 +1047,6 @@ class DetermineBasalBoost @Inject constructor(
                 val scale_pct: Double
                 if (profile.enableBoostPercentScale) {
                     scale_pct = round(100.0 / (profile.boost_percent_scale * (profileSwitch / 100.0)), 3)
-                    consoleError.add("Percent Scale is: ${100.0 / scale_pct} from ${profile.boost_percent_scale}")
                     insulinDivisor = if (bg < 108) {
                         scale_pct
                     } else {
@@ -1065,42 +1057,34 @@ class DetermineBasalBoost @Inject constructor(
                     insulinDivisor = insulinReqPCT
                 }
 
-                consoleError.add("Insulin Divisor is: $insulinDivisor")
-                consoleError.add("Value is ${(1.0 / insulinDivisor) * 100}% of insulin required")
-                consoleError.add("insulinRequired is: $insulinReq")
-
                 // Boost factors
                 val uamBoost1 = if (abs(glucose_status.shortAvgDelta) > 0.001) glucose_status.delta / glucose_status.shortAvgDelta else 0.0
                 val uamBoost2 = if (abs(glucose_status.longAvgDelta) > 0.001) abs(glucose_status.delta / glucose_status.longAvgDelta) else 0.0
-                consoleError.add("UAM Boost 1 value is $uamBoost1")
-                consoleError.add("UAM Boost 2 value is $uamBoost2")
-                rT.reason.append("UAM Boost 1: $uamBoost1; UAM Boost 2: $uamBoost2; Delta: ${glucose_status.delta}; ShortAvg: ${glucose_status.shortAvgDelta}; ")
 
                 val boostMaxIOB = profile.boost_maxIOB
-                consoleError.add("Max IOB from automated boluses = $boostMaxIOB")
-                consoleError.add("Boost is ${if (!boostActive) "in" else ""}active")
-
                 val boost_max = profile.boost_bolus
-                consoleError.add("Max automated bolus is $boost_max")
-
                 val boost_scale = profile.boost_scale * (profileSwitch / 100.0)
-                consoleError.add("Boost Scale value is $boost_scale from ${profile.boost_scale}")
                 var boostInsulinReq = basal
 
                 val COB = meal_data.mealCOB
                 val CR = profile.carb_ratio
 
-                consoleError.add("Delta variance is $delta_accl")
-                consoleError.add("Base boost insulin is $boostInsulinReq iu")
-                consoleError.add("Post Boost trigger state: $iTimeActive")
+                consoleError.add("── SMB Dosing ──────────────────────────────")
+                consoleError.add("InsulinReq%: ${round((1.0 / insulinReqPCT) * 100, 1)}% | Divisor: ${round(insulinDivisor, 2)} (${round((1.0 / insulinDivisor) * 100, 1)}%)")
+                if (profile.enableBoostPercentScale) {
+                    consoleError.add("Percent scale: ${round(100.0 / scale_pct, 1)}% from ${profile.boost_percent_scale}")
+                }
+                consoleError.add("insulinReq: $insulinReq | UAM Boost1: ${round(uamBoost1, 2)} | UAM Boost2: ${round(uamBoost2, 2)}")
+                consoleError.add("Boost scale: ${round(boost_scale, 2)} (from ${round(profile.boost_scale, 2)}) | Max bolus: $boost_max | MaxIOB: $boostMaxIOB")
+                consoleError.add("Boost ${if (!boostActive) "IN" else ""}ACTIVE | Base insulin: ${round(boostInsulinReq, 2)}U | delta_accl: $delta_accl")
+                rT.reason.append("UAM Boost 1: ${round(uamBoost1, 2)}; UAM Boost 2: ${round(uamBoost2, 2)}; Delta: ${glucose_status.delta}; ShortAvg: ${glucose_status.shortAvgDelta}; ")
 
                 var microBolus: Double
 
-                // Decision tree debug - show which conditions are met
-                consoleError.add("----- SMB Tier Decision -----")
-                consoleError.add("boostActive=$boostActive | COB=$COB | lastCarbAge=$lastCarbAge | delta=${round(glucose_status.delta, 1)} | shortAvg=${round(glucose_status.shortAvgDelta, 1)}")
-                consoleError.add("delta_accl=$delta_accl | bg=$bg | eventualBG=$eventualBG | target=$target_bg | IOB=${round(iob_data.iob, 2)}/$boostMaxIOB")
-                consoleError.add("insulinReq=$insulinReq | uamBoost1=${round(uamBoost1, 2)} | uamBoost2=${round(uamBoost2, 2)}")
+                // Decision tree debug
+                consoleError.add("── Tier Decision ───────────────────────────")
+                consoleError.add("bg=$bg | delta=${round(glucose_status.delta, 1)} | shortAvg=${round(glucose_status.shortAvgDelta, 1)} | delta_accl=$delta_accl")
+                consoleError.add("eventualBG=${round(eventualBG, 0)} | target=$target_bg | IOB=${round(iob_data.iob, 2)}/$boostMaxIOB | COB=$COB | lastCarbAge=$lastCarbAge")
 
                 // ----- Tier 1: Primary COB handling (< 25 min since carbs) -----
                 if (boostActive && COB > 0 && lastCarbAge < 25) {
@@ -1261,6 +1245,8 @@ class DetermineBasalBoost @Inject constructor(
             // Boost-specific: iTimeActive high basal and bolus logic
             // =====================================================================
             val maxSafeBasal = getMaxSafeBasal(profile)
+            consoleError.add("── High Basal ──────────────────────────────")
+            consoleError.add("iTimeActive: $iTimeActive | maxSafeBasal: ${round(maxSafeBasal, 2)}")
             rT.reason.append("Additional basal trigger currently set to $iTimeActive; ")
 
             if (iTimeActive && !(microBolusAllowed && enableSMB && bg > threshold)) {
