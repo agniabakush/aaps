@@ -186,7 +186,8 @@ class BoostOverviewHelper @Inject constructor(
         val tierNum = match.groupValues[1]
         val tierName = match.groupValues[2].trim()
         // Trim at sentence boundary if reason has extra text after tier label
-        val cleanName = tierName.split(TIER_NAME_SPLIT_REGEX).firstOrNull()?.trim() ?: tierName
+        val cleanName = tierName.split(TIER_NAME_SPLIT_REGEX).firstOrNull()?.trim()
+            ?.trimEnd('<', '>', ' ') ?: tierName
         val label = "Tier $tierNum - $cleanName"
         val tier = BoostTier.fromLabel(cleanName)
         return Pair(tier, label)
@@ -260,7 +261,7 @@ class BoostOverviewHelper @Inject constructor(
         private const val CACHE_TTL_MS = 30_000L  // 30 seconds
 
         // Pre-compiled regexes (avoid recompilation on every getBoostStatus() call)
-        private val TIER_REGEX = Regex("""[Tt]ier\s+(\d+)\s*[-:]\s*(.+)""")
+        private val TIER_REGEX = Regex("""tier\s+(\d+)\s*[-:]\s*(.+)""", RegexOption.IGNORE_CASE)
         private val BOOST_ACTIVE_REGEX = Regex("""BOOST\s+ACTIVE\s*\((\w[\w\s-]*)\)""", RegexOption.IGNORE_CASE)
         private val PROFILE_PCT_REGEX = Regex("""(?:→\s*)?profile\s+(\d+)%""", RegexOption.IGNORE_CASE)
         private val SLEEP_IN_REGEX = Regex("""BOOST\s+INACTIVE\s*:\s*Sleep-?in""", RegexOption.IGNORE_CASE)
