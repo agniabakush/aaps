@@ -147,7 +147,7 @@ open class OpenAPSAutoISFPlugin @Inject constructor(
     val iobThresholdPercent; get() = preferences.get(IntKey.ApsAutoIsfIobThPercent)
     private val exerciseMode; get() = preferences.get(BooleanKey.ApsAutoIsfExerciseMode)
     private val highTemptargetRaisesSensitivity; get() = preferences.get(BooleanKey.ApsAutoIsfHighTtRaisesSens)
-    val normalTarget = 100
+    val normalTarget = Constants.NORMAL_TARGET_MGDL
     private val minutesClass; get() = if (preferences.get(IntKey.ApsMaxSmbFrequency) == 1) 6L else 30L  // ga-zelle: later get correct 1 min CGM flag from glucoseStatus ? ... or from apsResults?
 
     override fun onStart() {
