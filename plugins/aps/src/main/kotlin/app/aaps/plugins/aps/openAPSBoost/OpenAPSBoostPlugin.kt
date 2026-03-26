@@ -585,7 +585,12 @@ open class OpenAPSBoostPlugin @Inject constructor(
             adjusted
         } else pump.baseBasalRate
 
-        // 6. Step counts
+        // 6. Recent BG nadir (for fast-carb rebound detection)
+        val now60MinAgo = System.currentTimeMillis() - 60 * 60 * 1000L
+        val recentLowBG = persistenceLayer.getBgReadingsDataFromTimeToTime(now60MinAgo, System.currentTimeMillis(), true)
+            .minOfOrNull { it.value }?.toDouble() ?: 999.0
+
+        // 7. Step counts
         val recentSteps5Min = StepService.getRecentStepCount5Min()
         val recentSteps15Min = StepService.getRecentStepCount15Min()
         val recentSteps30Min = StepService.getRecentStepCount30Min()
@@ -664,6 +669,9 @@ open class OpenAPSBoostPlugin @Inject constructor(
             recentSteps15Minutes = recentSteps15Min,
             recentSteps30Minutes = recentSteps30Min,
             recentSteps60Minutes = recentSteps60Min,
+
+            // Fast-carb rebound detection
+            recentLowBG = recentLowBG,
 
             // Debug context
             boostDebugReason = activityResult.debugReason,

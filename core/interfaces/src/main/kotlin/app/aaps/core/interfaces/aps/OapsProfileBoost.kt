@@ -79,6 +79,11 @@ data class OapsProfileBoost(
     var recentSteps30Minutes: Int,
     var recentSteps60Minutes: Int,
 
+    // Boost-specific: recent glucose nadir (minimum BG in last 60 minutes, mg/dL)
+    // Used to detect fast-carb rebound: if BG was recently very low and is now rising fast,
+    // suppress UAM boost to avoid stacking insulin onto an unannounced carb rescue.
+    var recentLowBG: Double,
+
     // Boost debug context (not used by algorithm, displayed in Script Debug)
     var boostDebugReason: String = "",
     var isfDebugReason: String = ""

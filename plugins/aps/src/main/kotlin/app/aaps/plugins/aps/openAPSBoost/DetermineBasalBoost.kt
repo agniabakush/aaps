@@ -1071,6 +1071,21 @@ class DetermineBasalBoost @Inject constructor(
                 val uamBoost1 = if (abs(glucose_status.shortAvgDelta) > 0.001) glucose_status.delta / glucose_status.shortAvgDelta else 0.0
                 val uamBoost2 = if (abs(glucose_status.longAvgDelta) > 0.001) abs(glucose_status.delta / glucose_status.longAvgDelta) else 0.0
 
+                // Fast-carb rebound detection:
+                // If BG was genuinely low (< 72) within the last 60 min and is now rising fast
+                // with no logged carbs, this is likely a fast-carb rescue response.
+                // UAM/Acceleration tiers would fire aggressively here (uamBoost2 inflated by
+                // the recent fall), risking insulin stacking onto an unannounced carb rise.
+                // Suppress Tiers 3, 5, 6 and let Tier 7 (mild) handle it instead.
+                val fastCarbRebound = profile.recentLowBG < 72.0
+                    && meal_data.mealCOB == 0.0
+                    && bg < 170.0
+                    && glucose_status.delta > 5.0
+                if (fastCarbRebound) {
+                    consoleError.add("Fast-carb rebound detected: recentLow=${round(profile.recentLowBG, 0)}, BG=$bg, delta=${glucose_status.delta} — UAM/Accel boost suppressed")
+                    rT.reason.append("Fast-carb rebound (low ${round(profile.recentLowBG, 0)}→$bg): boost suppressed; ")
+                }
+
                 val boostMaxIOB = profile.boost_maxIOB
                 val boost_max = profile.boost_bolus
                 val boost_scale = profile.boost_scale * (profileSwitch / 100.0)
@@ -1116,7 +1131,7 @@ class DetermineBasalBoost @Inject constructor(
                     consoleError.add("Insulin required % (${(1.0 / insulinReqPCT) * 100}%) applied.")
                 }
                 // ----- Tier 3: UAM Boost (strong acceleration with positive delta) -----
-                else if (glucose_status.delta >= 5 && glucose_status.shortAvgDelta >= 3 && uamBoost1 > 1.2 && uamBoost2 > 2 && boostActive && iob_data.iob < boostMaxIOB && boost_scale < 3 && eventualBG > target_bg && bg > 80 && insulinReq > 0) {
+                else if (!fastCarbRebound && glucose_status.delta >= 5 && glucose_status.shortAvgDelta >= 3 && uamBoost1 > 1.2 && uamBoost2 > 2 && boostActive && iob_data.iob < boostMaxIOB && boost_scale < 3 && eventualBG > target_bg && bg > 80 && insulinReq > 0) {
                     consoleError.add(">>> TIER 3: UAM Boost <<<")
                     rT.boostTier = "UAM_BOOST"
                     consoleError.add("Insulin required pre-boost is $insulinReq")
@@ -1156,7 +1171,7 @@ class DetermineBasalBoost @Inject constructor(
                     consoleError.add("UAM High Boost enacted; SMB equals $boostInsulinReq; Original insulin requirement was $insulinReq")
                 }
                 // ----- Tier 5: Percent scale (BG 98-180, delta > 3, accelerating) -----
-                else if (bg > 98 && bg < 181 && glucose_status.delta > 3 && delta_accl > 0 && eventualBG > target_bg && iob_data.iob < boostMaxIOB && boostActive) {
+                else if (!fastCarbRebound && bg > 98 && bg < 181 && glucose_status.delta > 3 && delta_accl > 0 && eventualBG > target_bg && iob_data.iob < boostMaxIOB && boostActive) {
                     consoleError.add(">>> TIER 5: Percent Scale <<<")
                     rT.boostTier = "PERCENT_SCALE"
                     if (insulinReq > boostMaxIOB - iob_data.iob) {
@@ -1173,7 +1188,7 @@ class DetermineBasalBoost @Inject constructor(
                     consoleError.add("Post percent scale trigger state: $iTimeActive")
                 }
                 // ----- Tier 6: Acceleration bolus (delta_accl > 25) -----
-                else if (delta_accl > 25 && glucose_status.delta > 4 && iob_data.iob < boostMaxIOB && boostActive && eventualBG > target_bg) {
+                else if (!fastCarbRebound && delta_accl > 25 && glucose_status.delta > 4 && iob_data.iob < boostMaxIOB && boostActive && eventualBG > target_bg) {
                     consoleError.add(">>> TIER 6: Acceleration Bolus <<<")
                     rT.boostTier = "ACCELERATION"
                     boostInsulinReq = min(boost_scale * boostInsulinReq, boost_max)
