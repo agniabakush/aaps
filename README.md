@@ -34,6 +34,13 @@ When this pattern is detected, **Tier 3 (UAM Boost), Tier 5 (Percent Scale), and
 
 **What this means in practice:** after treating a low without logging the carbs, the algorithm will still deliver insulin if the glucose rises above target — it just won't multiply it up using the UAM/acceleration logic that was calibrated for unannounced meals from a normal baseline. Once BG has been above 72 mg/dL for a full 60 minutes, `recentLowBG` will rise above the threshold and normal boost behaviour resumes automatically.
 
+**Two detection signals are used in combination:**
+
+- **`recentLowBG`** — minimum CGM reading in the last 60 minutes. If below 72 mg/dL, a genuine hypo preceded the rise.
+- **`recentBrakingProduct`** — maximum value of `|Δ₂| × (Δ₂ − Δ₁)` across consecutive CGM triplets in the last 60 minutes, where Δ₂ is still negative (BG falling) and Δ₂ > Δ₁ (fall decelerating). This captures the sharp braking of a falling glucose caused by fast-acting carb absorption — and catches the *"candy without a preceding low"* case that `recentLowBG` misses. A threshold of 800 distinguishes fast-carb braking from the gradual deceleration seen during normal IOB decay.
+
+Either signal independently can trigger the protection, so both eating fast carbs from a low **and** eating fast carbs from a normal blood glucose are covered.
+
 This protection applies to both the **Boost** and **Boost V2** plugins.
 
 ---

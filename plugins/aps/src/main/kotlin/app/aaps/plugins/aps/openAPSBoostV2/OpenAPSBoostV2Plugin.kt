@@ -584,10 +584,20 @@ open class OpenAPSBoostV2Plugin @Inject constructor(
             adjusted
         } else pump.baseBasalRate
 
-        // 6. Recent BG nadir (for fast-carb rebound detection)
+        // 6. Recent BG nadir + braking signal (for fast-carb detection)
         val now60MinAgo = System.currentTimeMillis() - 60 * 60 * 1000L
-        val recentLowBG = persistenceLayer.getBgReadingsDataFromTimeToTime(now60MinAgo, System.currentTimeMillis(), true)
-            .minOfOrNull { it.value }?.toDouble() ?: 999.0
+        val recentBgReadings = persistenceLayer.getBgReadingsDataFromTimeToTime(now60MinAgo, System.currentTimeMillis(), true)
+        val recentLowBG = recentBgReadings.minOfOrNull { it.value }?.toDouble() ?: 999.0
+        // Braking product: max(|delta2| × (delta2 - delta1)) across consecutive triplets
+        // where delta2 < 0 (still falling) and delta2 > delta1 (deceleration).
+        // High values indicate rapid carb absorption arresting a fall — fast-carb signal
+        // even when BG never went below the low threshold.
+        val recentBrakingProduct = recentBgReadings.windowed(3).mapNotNull { w ->
+            val delta1 = w[1].value - w[0].value
+            val delta2 = w[2].value - w[1].value
+            val improvement = delta2 - delta1
+            if (delta2 < 0 && improvement > 0) Math.abs(delta2) * improvement else null
+        }.maxOrNull()?.toDouble() ?: 0.0
 
         // 7. Step counts
         val recentSteps5Min = StepService.getRecentStepCount5Min()
@@ -671,6 +681,7 @@ open class OpenAPSBoostV2Plugin @Inject constructor(
 
             // Fast-carb rebound detection
             recentLowBG = recentLowBG,
+            recentBrakingProduct = recentBrakingProduct,
 
             // Debug context
             boostDebugReason = activityResult.debugReason,

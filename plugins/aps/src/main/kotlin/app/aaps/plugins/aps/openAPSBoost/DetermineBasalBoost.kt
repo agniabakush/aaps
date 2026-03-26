@@ -1077,13 +1077,21 @@ class DetermineBasalBoost @Inject constructor(
                 // UAM/Acceleration tiers would fire aggressively here (uamBoost2 inflated by
                 // the recent fall), risking insulin stacking onto an unannounced carb rise.
                 // Suppress Tiers 3, 5, 6 and let Tier 7 (mild) handle it instead.
-                val fastCarbRebound = profile.recentLowBG < 72.0
+                // Two signals: recentLowBG catches lows below 72; recentBrakingProduct catches
+                // fast carbs eaten from a normal BG (candy without a preceding low) where the
+                // sharp deceleration of the falling glucose is the detectable signature.
+                val lowTriggered = profile.recentLowBG < 72.0
+                val brakingTriggered = profile.recentBrakingProduct > 800.0
+                val fastCarbRebound = (lowTriggered || brakingTriggered)
                     && meal_data.mealCOB == 0.0
                     && bg < 170.0
                     && glucose_status.delta > 5.0
                 if (fastCarbRebound) {
-                    consoleError.add("Fast-carb rebound detected: recentLow=${round(profile.recentLowBG, 0)}, BG=$bg, delta=${glucose_status.delta} — UAM/Accel boost suppressed")
-                    rT.reason.append("Fast-carb rebound (low ${round(profile.recentLowBG, 0)}→$bg): boost suppressed; ")
+                    val trigger = if (lowTriggered && brakingTriggered) "low+braking"
+                        else if (lowTriggered) "low ${round(profile.recentLowBG, 0)}"
+                        else "braking ${round(profile.recentBrakingProduct, 0)}"
+                    consoleError.add("Fast-carb rebound detected ($trigger): BG=$bg, delta=${glucose_status.delta} — UAM/Accel boost suppressed")
+                    rT.reason.append("Fast-carb rebound ($trigger→$bg): boost suppressed; ")
                 }
 
                 val boostMaxIOB = profile.boost_maxIOB
