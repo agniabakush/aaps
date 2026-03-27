@@ -4,7 +4,6 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.util.Log
-import kotlin.math.roundToLong
 
 /**
  * Step counting service for Boost activity detection.
@@ -29,7 +28,7 @@ object StepService : SensorEventListener {
     }
 
     private fun currentTimeIn5Min(): Long {
-        return (System.currentTimeMillis() / FIVE_MINUTES_IN_MS.toDouble()).roundToLong()
+        return System.currentTimeMillis() / FIVE_MINUTES_IN_MS
     }
 
     override fun onSensorChanged(sensorEvent: SensorEvent?) {
@@ -77,9 +76,10 @@ object StepService : SensorEventListener {
 
     private fun getStepsInLastXMin(numberOf5MinIncrements: Int): Int {
         var stepCount = 0
-        val cutoff = currentTimeIn5Min() - numberOf5MinIncrements
+        val now = currentTimeIn5Min()
+        val cutoff = now - numberOf5MinIncrements
         for (entry in stepsMap.entries) {
-            if (entry.key > cutoff) {
+            if (entry.key > cutoff && entry.key < now) {
                 stepCount += entry.value
             }
         }

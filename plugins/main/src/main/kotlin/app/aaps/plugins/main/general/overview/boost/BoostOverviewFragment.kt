@@ -591,7 +591,8 @@ class BoostOverviewFragment : DaggerFragment(), View.OnClickListener, View.OnLon
     private fun updateProfile() {
         if (!isAdded) return
         val profile = profileFunction.getProfile()
-        val profileName = profileFunction.getProfileName()
+        val profileName = profileFunction.getOriginalProfileName()
+            .replace(Regex("""\s*\(\d+%\)$"""), "")
         val isModified = (profile as? ProfileSealed.EPS)?.let {
             it.value.originalPercentage != 100 || it.value.originalTimeshift != 0L || it.value.originalDuration != 0L
         } ?: false
@@ -967,8 +968,14 @@ class BoostOverviewFragment : DaggerFragment(), View.OnClickListener, View.OnLon
                 }
                 R.id.panel_activity -> {
                     val bs = lastBoostStatus
+                    val units = profileFunction.getUnits()
+                    val unitsLabel = if (units == GlucoseUnit.MGDL) "mg/dL" else "mmol/L"
+                    val exerciseTargetStr = if (bs.targetBgMgdl > 0)
+                        "${profileUtil.fromMgdlToStringInUnits(bs.targetBgMgdl)} $unitsLabel"
+                    else "---"
                     OKDialog.show(a, "Exercise / Activity Mode",
                         "Current: ${bs.activityDetail}\n\n" +
+                            "Exercise target: $exerciseTargetStr\n\n" +
                             "Profile: ${bs.profilePercentage}%\n\n" +
                             "--- Script Debug ---\n${bs.scriptDebugText.ifEmpty { "(no debug output)" }}")
                 }
