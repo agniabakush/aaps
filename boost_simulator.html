@@ -1029,8 +1029,11 @@ function calcAll(inp) {
   // ── Final microbolus ──────────────────────────────────────
   const ioBlock          = inp.iob > inp.maxIob;
   const boostDisabledScale = inp.scale >= 3.0;
+  // Tier 8 fallback caps by maxBolus (basal × uamSmbMin/60). All other tiers cap by boost_max (bolusMax).
+  // The main display uses the Tier 8 formula as a conservative lower bound for the simplified sim.
   let rawMicroBolus = Math.max(0, Math.min(insulinReqV1 / scaledDivisor, maxBasalBolus, inp.bolusMax));
-  const rawMicroBolusUnscaled = Math.max(0, Math.min(insulinReqV1 / baseReqDivisor, maxBasalBolus, inp.bolusMax));
+  // For percent-scale comparison: Tier 5 caps only by boost_max (bolusMax), not maxBasalBolus.
+  const rawMicroBolusUnscaled = Math.max(0, Math.min(insulinReqV1 / baseReqDivisor, inp.bolusMax));
   const blocked = ioBlock || boostDisabledScale || nightSuppressed;
   const microBolus = blocked ? 0 : Math.floor(rawMicroBolus * 20) / 20;
 
@@ -1175,23 +1178,29 @@ function update() {
     smbBreak += inp.nightModeCob && inp.cob > 0 ? `(would unblock with COB ${inp.cob}g — but Disable NM if COB is OFF)` : `(re-enable: raise offset, or turn on "Disable NM if COB>0" with COB present)`;
   } else {
     smbBreak = `insulinReq: (${inp.bg} - ${inp.target}) ÷ ISF ${fmt(r.isfV1,1)} = ${fmt(r.insulinReqV1,3)} U\n`;
-    smbBreak += `SMB minutes (IOB ${fmt(inp.iob,1)}>${-0.2 ? 'UAM' : 'SMB'}): ${r.smbMinToUse}min → maxBasalBolus = ${fmt(r.effectiveBasal,3)}×${r.smbMinToUse}÷60 = ${fmt(r.maxBasalBolus,3)} U\n`;
+    smbBreak += `Tiers 1–7: cap = Boost Max Bolus (${fmt(inp.bolusMax,2)} U)\n`;
+    smbBreak += `Tier 8 (fallback only): cap = basal×${r.smbMinToUse}÷60 = ${fmt(r.maxBasalBolus,3)} U\n`;
     if (inp.percentScale) {
-      smbBreak += `Percent Scaling active (BG=${inp.bg}): scaledDivisor = ${fmt(r.scaledDivisor,3)} (base=${fmt(r.baseReqDivisor,3)})\n`;
+      smbBreak += `Percent Scaling (Tier 5, BG 98–181, delta>3): insulinDivisor = ${fmt(r.scaledDivisor,3)} (base=${fmt(r.baseReqDivisor,3)})\n`;
+      smbBreak += `  Tier 5 SMB = min(${fmt(r.insulinReqV1,3)}÷${fmt(r.scaledDivisor,3)}, ${fmt(inp.bolusMax,2)}) = ${fmt(Math.min(r.insulinReqV1/r.scaledDivisor,inp.bolusMax),3)} U\n`;
     } else {
       smbBreak += `insulinReqPct divisor: 1÷${(inp.insulinReqPct*100).toFixed(0)}% = ${fmt(r.baseReqDivisor,3)}\n`;
     }
-    smbBreak += `insulinReq÷divisor = ${fmt(r.insulinReqV1/r.scaledDivisor,3)} U | bolusMax cap: ${inp.bolusMax} U\n`;
-    smbBreak += `Final (min of above, rounded to 0.05U): ${fmt(r.microBolus,2)} U`;
+    smbBreak += `Simplified sim output (Tier 8 conservative bound, rounded to 0.05U): ${fmt(r.microBolus,2)} U`;
   }
   document.getElementById('out-smb-breakdown').textContent = smbBreak;
 
   // Percent Scaling comparison row
+  // Percent scaling fires in Tier 5 (BG 98-181, delta>3, accelerating).
+  // Tiers 1-7 cap against boost_max (bolusMax here), NOT maxBolus from uamSmbMin.
+  // Tier 8 (fallback) is the only tier using maxBolus from uamSmbMin — it does NOT use percent scaling.
+  // So the correct comparison uses bolusMax as the only cap.
   const psRow = document.getElementById('out-percent-scale-row');
   if (inp.percentScale && !r.boostDisabledScale && !r.ioBlock && !r.nightSuppressed) {
     psRow.style.display = 'block';
-    const unscaled = r.rawMicroBolusUnscaled;
-    const scaled   = r.rawMicroBolus;
+    // Use only bolusMax (boost_max) cap — matches Tier 5 formula: min(insulinReq/insulinDivisor, boost_max)
+    const unscaled = Math.max(0, Math.min(r.insulinReqV1 / r.baseReqDivisor, inp.bolusMax));
+    const scaled   = Math.max(0, Math.min(r.insulinReqV1 / r.scaledDivisor,   inp.bolusMax));
     const diff     = scaled - unscaled;
     document.getElementById('out-ps-unscaled').textContent = fmt(unscaled, 3) + ' U';
     document.getElementById('out-ps-scaled').textContent   = fmt(scaled,   3) + ' U';
@@ -1208,10 +1217,10 @@ function update() {
     }
     const noteEl = document.getElementById('out-ps-note');
     if (Math.abs(diff) < 0.001) {
-      const cap = Math.min(r.maxBasalBolus, inp.bolusMax);
-      noteEl.textContent = `Both paths hit the same cap (${fmt(cap,3)} U). To see scaling take effect, raise uamSmbMin (currently ${inp.uamSmbMin}m) or increase Basal Rate so maxBasalBolus > insulinReq÷divisor.`;
+      noteEl.textContent = `Both paths hit the Boost Max Bolus cap (${fmt(inp.bolusMax,2)} U). To see the scaling difference, lower Boost Max Bolus or ensure insulinReq is small enough that the divisor change matters.`;
     } else {
-      noteEl.textContent = `Percent Scaling is ${diff > 0 ? 'increasing' : 'decreasing'} the microbolus by ${fmt(Math.abs(diff),3)} U at BG ${inp.bg}. scaledDivisor=${fmt(r.scaledDivisor,3)} vs base=${fmt(r.baseReqDivisor,3)}.`;
+      const pctDiff = ((diff / unscaled) * 100).toFixed(1);
+      noteEl.textContent = `Tier 5 (BG 98–181, delta>3): percent scaling ${diff > 0 ? 'increases' : 'decreases'} microbolus by ${fmt(Math.abs(diff),3)} U (${pctDiff > 0 ? '+' : ''}${pctDiff}%). insulinDivisor=${fmt(r.scaledDivisor,3)} vs base=${fmt(r.baseReqDivisor,3)}.`;
     }
   } else {
     psRow.style.display = 'none';
