@@ -475,6 +475,7 @@ canvas {
     <div class="tab active" onclick="switchTab('isf')">ISF &amp; SMB</div>
     <div class="tab" onclick="switchTab('curve')">ISF Curve</div>
     <div class="tab" onclick="switchTab('smb')">SMB Deep Dive</div>
+    <div class="tab" onclick="switchTab('proj')">BG Projection</div>
   </div>
 </header>
 
@@ -960,6 +961,27 @@ canvas {
       <div id="out-smb-sensitivity" style="font-size:0.8rem; color:#94a3b8; line-height:1.9;">—</div>
     </div>
   </div><!-- /tab-smb -->
+
+  <!-- ── BG Projection tab ── -->
+  <div class="tab-page" id="tab-proj">
+    <div class="card">
+      <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
+        <span>BG Projection — Last 30 min + Next 60 min</span>
+        <span id="proj-data-source" style="font-size:0.72rem; color:#64748b; font-weight:400;"></span>
+      </div>
+      <p style="font-size:0.75rem; color:#64748b; margin-bottom:12px; line-height:1.5;">
+        <span style="color:#94a3b8; font-weight:600;">—— Grey</span>: trend only (no new insulin) &nbsp;·&nbsp;
+        <span style="color:#6ee7b7; font-weight:600;">—— Green</span>: with Boost SMBs &nbsp;·&nbsp;
+        <span style="color:#a78bfa; font-weight:600;">▲</span>: SMB fired &nbsp;·&nbsp;
+        Dashed = projected, solid = historical
+      </p>
+      <canvas id="projChart" style="width:100%; height:320px;"></canvas>
+    </div>
+    <div class="card" id="proj-smb-log-card">
+      <div class="card-title">Projected SMB Delivery</div>
+      <div id="proj-smb-log" style="font-size:0.78rem; color:#94a3b8; line-height:1.9;">—</div>
+    </div>
+  </div><!-- /tab-proj -->
 
 </div><!-- /main -->
 </div><!-- /app -->
@@ -1614,6 +1636,7 @@ function drawCharts(inp, r) {
   drawIsfChart(inp, r);
   drawRatioChart(inp, r);
   drawSmbChart(inp, r);
+  drawProjectionChart(inp, r);
 }
 
 function setupCanvas(id) {
@@ -1983,15 +2006,268 @@ function toggleSection(header) {
   header.nextElementSibling.classList.toggle('hidden');
 }
 
+// ════════════════════════════════════════════════════════════
+// BG Projection Chart
+// ════════════════════════════════════════════════════════════
+function drawProjectionChart(inp, r) {
+  const c = setupCanvas('projChart');
+  if (!c) return;
+  const { ctx, W, H } = c;
+  const pad = { t: 24, r: 28, b: 44, l: 52 };
+
+  // ── Build historical BG series ────────────────────────────
+  // Use real NS data if available; otherwise synthesise from current BG + deltas
+  let hist;
+  if (nsHistory.length >= 2) {
+    hist = [...nsHistory].sort((a, b) => a.t - b.t); // oldest first, t ≤ 0
+    document.getElementById('proj-data-source').textContent = 'Using Nightscout data';
+  } else {
+    // Synthetic: back-project using longAvgDelta for each 5-min step
+    hist = [];
+    for (let i = 5; i >= 0; i--) {
+      hist.push({ t: -(i * 5), bg: inp.bg - inp.longAvgDelta * i });
+    }
+    document.getElementById('proj-data-source').textContent = 'Manual simulation (connect Nightscout for real history)';
+  }
+
+  // ── Insulin activity model ────────────────────────────────
+  // Bilinear curve: rises linearly to peak, falls linearly to DIA
+  const peak = inp.peak;        // minutes
+  const DIA  = Math.max(peak * 4.5, 270); // minutes, ~4.5× peak
+  // Returns per-minute fraction of a bolus's activity at time t (minutes post-bolus)
+  function activity(t) {
+    if (t <= 0 || t >= DIA) return 0;
+    if (t <= peak) return (2 * t) / (peak * DIA);
+    return (2 * (DIA - t)) / ((DIA - peak) * DIA);
+  }
+  // BG effect of 1U on [tFrom, tTo] — integrate activity × ISF
+  function bgEffect(tFrom, tTo) {
+    const steps = 4, dt = (tTo - tFrom) / steps;
+    let sum = 0;
+    for (let k = 0; k <= steps; k++) {
+      const w = (k === 0 || k === steps) ? 0.5 : 1;
+      sum += w * activity(tFrom + k * dt);
+    }
+    return sum * dt * r.isfV1;
+  }
+
+  // ── IOB tracking structure ────────────────────────────────
+  // Each pending bolus: { deliveredAt: minutes_from_now, units }
+  function iobRemaining(boluses, atMin) {
+    return boluses.reduce((acc, b) => {
+      const age = atMin - b.deliveredAt;
+      if (age < 0 || age >= DIA) return acc;
+      // IOB fraction remaining = 1 - integral of activity from 0 to age
+      // Approx with trapezoidal
+      const steps = Math.min(Math.ceil(age / 5), 60), dt = age / Math.max(steps, 1);
+      let used = 0;
+      for (let k = 0; k < steps; k++) used += activity(k * dt + dt / 2) * dt;
+      return acc + b.units * Math.max(0, 1 - used);
+    }, 0);
+  }
+
+  // ── Run projection simulation ─────────────────────────────
+  const STEP = 5;   // minutes per step
+  const STEPS = 13; // 0..60 min ahead
+  const noBoostBGs = [inp.bg];
+  const withBoostBGs = [inp.bg];
+  const smbEvents = []; // {t, units, bg}
+
+  // Seed with current IOB as a "bolus delivered DIA/2 minutes ago" proxy
+  // so it decays correctly going forward
+  const pendingNone  = inp.iob > 0 ? [{ deliveredAt: -peak, units: inp.iob }] : [];
+  const pendingBoost = inp.iob > 0 ? [{ deliveredAt: -peak, units: inp.iob }] : [];
+
+  for (let i = 1; i < STEPS; i++) {
+    const t = i * STEP;  // minutes from now
+
+    // Trend: use longAvgDelta, decaying toward 0 over ~40 min
+    const trendDecay = Math.exp(-t / 40);
+    const trend = inp.longAvgDelta * trendDecay * STEP;
+
+    // ── No-boost projection ──
+    const iobEffNone = bgEffect(t - STEP, t) * iobRemaining(pendingNone, t - STEP);
+    const bgNone = Math.max(40, noBoostBGs[i-1] + trend - iobEffNone);
+    noBoostBGs.push(bgNone);
+
+    // ── With-boost projection ──
+    const iobEffBoost = bgEffect(t - STEP, t) * iobRemaining(pendingBoost, t - STEP);
+    let bgWith = Math.max(40, withBoostBGs[i-1] + trend - iobEffBoost);
+
+    // Would Boost fire? Use current tier/microbolus logic scaled by insulinReq ratio
+    const iobNow = iobRemaining(pendingBoost, t);
+    if (!r.ioBlock && !r.boostDisabledScale && !r.nightSuppressed &&
+        bgWith > inp.target && iobNow < inp.maxIob && r.microBolus > 0) {
+      const scaledReq = Math.max(0, (bgWith - inp.target) / r.isfV1);
+      const scaleFactor = r.insulinReqV1 > 0 ? Math.min(1, scaledReq / r.insulinReqV1) : 0;
+      const smb = Math.floor(r.microBolus * scaleFactor * 20) / 20;
+      if (smb >= 0.05) {
+        pendingBoost.push({ deliveredAt: t, units: smb });
+        smbEvents.push({ t, units: smb, bg: bgWith });
+      }
+    }
+    withBoostBGs.push(bgWith);
+  }
+
+  // ── Axis ranges ────────────────────────────────────────────
+  const allBGs = [...hist.map(h => h.bg), ...noBoostBGs, ...withBoostBGs];
+  const yMin = Math.min(...allBGs, inp.target - 20, 65) - 10;
+  const yMax = Math.max(...allBGs, inp.target + 30) + 15;
+  const xMin = hist.length ? hist[0].t : -25;
+  const xMax = 65;
+
+  const xS = t => pad.l + (t - xMin) / (xMax - xMin) * (W - pad.l - pad.r);
+  const yS = b => H - pad.b - (b - yMin) / (yMax - yMin) * (H - pad.t - pad.b);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#0f1117'; ctx.fillRect(0, 0, W, H);
+
+  // ── Background zones ──────────────────────────────────────
+  // Hypo zone (< 70)
+  if (yMin < 70) {
+    ctx.fillStyle = 'rgba(239,68,68,0.07)';
+    ctx.fillRect(pad.l, yS(70), W - pad.l - pad.r, yS(yMin) - yS(70));
+  }
+  // Target zone (target ± 20)
+  ctx.fillStyle = 'rgba(16,185,129,0.05)';
+  ctx.fillRect(pad.l, yS(inp.target + 20), W - pad.l - pad.r, yS(inp.target - 20) - yS(inp.target + 20));
+
+  // ── Grid lines ────────────────────────────────────────────
+  ctx.strokeStyle = '#1e2d40'; ctx.lineWidth = 1;
+  for (let bg = Math.ceil(yMin / 20) * 20; bg <= yMax; bg += 20) {
+    ctx.beginPath(); ctx.moveTo(pad.l, yS(bg)); ctx.lineTo(W - pad.r, yS(bg)); ctx.stroke();
+  }
+  // Vertical time grid
+  for (let t = -20; t <= 60; t += 10) {
+    ctx.beginPath(); ctx.moveTo(xS(t), pad.t); ctx.lineTo(xS(t), H - pad.b); ctx.stroke();
+  }
+
+  // ── Reference lines ───────────────────────────────────────
+  ctx.setLineDash([5, 4]);
+  // Target line
+  ctx.strokeStyle = 'rgba(16,185,129,0.5)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(pad.l, yS(inp.target)); ctx.lineTo(W - pad.r, yS(inp.target)); ctx.stroke();
+  // Hypo line
+  ctx.strokeStyle = 'rgba(239,68,68,0.4)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, yS(70)); ctx.lineTo(W - pad.r, yS(70)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // ── "Now" vertical ────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(148,163,184,0.35)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(xS(0), pad.t); ctx.lineTo(xS(0), H - pad.b); ctx.stroke();
+  ctx.fillStyle = '#475569'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('Now', xS(0), pad.t - 6);
+
+  // ── Historical BG line ────────────────────────────────────
+  ctx.strokeStyle = '#60a5fa'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  hist.forEach((p, i) => i === 0 ? ctx.moveTo(xS(p.t), yS(p.bg)) : ctx.lineTo(xS(p.t), yS(p.bg)));
+  ctx.stroke();
+  // Dots on historical readings
+  hist.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(xS(p.t), yS(p.bg), 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#60a5fa'; ctx.fill();
+  });
+
+  // ── No-boost projection (grey dashed) ─────────────────────
+  ctx.strokeStyle = '#475569'; ctx.lineWidth = 1.8; ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  noBoostBGs.forEach((bg, i) => {
+    const t = i * STEP;
+    i === 0 ? ctx.moveTo(xS(t), yS(bg)) : ctx.lineTo(xS(t), yS(bg));
+  });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // ── With-boost projection (green solid) ───────────────────
+  ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  withBoostBGs.forEach((bg, i) => {
+    const t = i * STEP;
+    i === 0 ? ctx.moveTo(xS(t), yS(bg)) : ctx.lineTo(xS(t), yS(bg));
+  });
+  ctx.stroke();
+
+  // Shaded area between the two projections
+  ctx.fillStyle = 'rgba(16,185,129,0.07)';
+  ctx.beginPath();
+  withBoostBGs.forEach((bg, i) => {
+    const t = i * STEP;
+    i === 0 ? ctx.moveTo(xS(t), yS(bg)) : ctx.lineTo(xS(t), yS(bg));
+  });
+  for (let i = noBoostBGs.length - 1; i >= 0; i--) {
+    ctx.lineTo(xS(i * STEP), yS(noBoostBGs[i]));
+  }
+  ctx.closePath(); ctx.fill();
+
+  // ── SMB event markers ─────────────────────────────────────
+  smbEvents.forEach(ev => {
+    const x = xS(ev.t), y = yS(ev.bg);
+    // Triangle pointing up
+    ctx.beginPath();
+    ctx.moveTo(x, y - 14);
+    ctx.lineTo(x - 6, y - 4);
+    ctx.lineTo(x + 6, y - 4);
+    ctx.closePath();
+    ctx.fillStyle = '#a78bfa'; ctx.fill();
+    // Vertical tick at bottom
+    ctx.strokeStyle = 'rgba(167,139,250,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(x, H - pad.b); ctx.lineTo(x, y - 5); ctx.stroke();
+    ctx.setLineDash([]);
+    // Label
+    ctx.fillStyle = '#c4b5fd'; ctx.font = '9px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText(ev.units.toFixed(2) + 'U', x, y - 17);
+  });
+
+  // ── Axis labels ────────────────────────────────────────────
+  ctx.fillStyle = '#475569'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+  [-20, -10, 0, 10, 20, 30, 40, 50, 60].forEach(t => {
+    const label = t === 0 ? '0' : (t > 0 ? '+' + t : t.toString());
+    ctx.fillText(label + 'm', xS(t), H - pad.b + 14);
+  });
+  ctx.textAlign = 'right';
+  for (let bg = Math.ceil(yMin / 20) * 20; bg <= yMax; bg += 20) {
+    if (bg >= yMin && bg <= yMax) ctx.fillText(bg, pad.l - 6, yS(bg) + 4);
+  }
+  // BG unit label
+  ctx.save(); ctx.translate(13, H / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = 'center'; ctx.fillText('mg/dL', 0, 0); ctx.restore();
+
+  // Current BG dot (junction of history + projection)
+  ctx.beginPath();
+  ctx.arc(xS(0), yS(inp.bg), 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#6ee7b7'; ctx.fill();
+
+  // Target label
+  ctx.fillStyle = 'rgba(16,185,129,0.7)'; ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText(`Target ${inp.target}`, pad.l + 4, yS(inp.target) - 4);
+
+  // ── Populate SMB log ──────────────────────────────────────
+  const logEl = document.getElementById('proj-smb-log');
+  if (smbEvents.length === 0) {
+    logEl.textContent = r.tier === 'BLOCKED' || r.microBolus === 0
+      ? 'No SMBs projected — ' + (r.boostDisabledScale ? 'Boost disabled (scale≥3)' : r.ioBlock ? 'IOB at maxIOB' : r.nightSuppressed ? 'Night mode active' : 'BG at or below target')
+      : 'No further SMBs projected in the next 60 min given current trend and IOB.';
+  } else {
+    const totalU = smbEvents.reduce((s, e) => s + e.units, 0);
+    const finalBG = withBoostBGs[withBoostBGs.length - 1];
+    logEl.innerHTML = smbEvents.map(ev =>
+      `+${ev.t}min: <b style="color:#a78bfa">${ev.units.toFixed(2)} U</b> (BG ≈ ${Math.round(ev.bg)} mg/dL, ${r.tier})`
+    ).join('<br>') +
+    `<br><span style="color:#64748b">Total projected: ${totalU.toFixed(2)} U over 60 min &nbsp;·&nbsp; ` +
+    `Projected BG at +60 min: <b style="color:${finalBG < 70 ? '#f87171' : finalBG < inp.target + 30 ? '#6ee7b7' : '#f59e0b'}">${Math.round(finalBG)} mg/dL</b></span>`;
+  }
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t,i) => {
-    const tabs = ['isf','curve','smb'];
+    const tabs = ['isf','curve','smb','proj'];
     t.classList.toggle('active', tabs[i] === name);
   });
   document.querySelectorAll('.tab-page').forEach(p => {
     p.classList.toggle('active', p.id === 'tab-' + name);
   });
-  // Redraw charts when switching to chart tabs
   setTimeout(() => { const inp = getInputs(); drawCharts(inp, calcAll(inp)); }, 50);
 }
 
@@ -1999,6 +2275,7 @@ function switchTab(name) {
 // Nightscout integration
 // ════════════════════════════════════════════════════════════
 let nsUrl = '', nsToken = '';
+let nsHistory = []; // [{t: offsetMinutes, bg: value}], t=0 is current, negative = past
 
 function closeNsModal() {
   document.getElementById('ns-modal-overlay').style.display = 'none';
@@ -2114,6 +2391,14 @@ function setSlider(id, value, min, max) {
 
 function applyNsData(entries, ds, profileData) {
   const nowMs = Date.now();
+
+  // ── Store BG history for projection chart ─────────────────
+  // entries are newest-first; convert to offset-from-now in minutes
+  const t0 = entries[0].date;
+  nsHistory = entries.slice(0, 8).map(e => ({
+    t:  (e.date - t0) / 60000, // 0 = current, negative = past
+    bg: e.sgv,
+  }));
 
   // ── BG and deltas ─────────────────────────────────────────
   const bg        = entries[0].sgv;
