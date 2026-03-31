@@ -450,6 +450,24 @@ canvas {
         <input type="range" id="s-tddAdj" min="1" max="300" step="1" value="100" oninput="update()">
         <div class="ctrl-hints"><span>1%</span><span>300%</span></div>
       </div>
+      <div class="toggle-row" style="margin-top:6px">
+        <span class="toggle-label">TDD Sensitivity Adjustment</span>
+        <label class="toggle"><input type="checkbox" id="t-adjustSens" onchange="toggleDependent('t-adjustSens','ctrl-sensRatio'); update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="ctrl" id="ctrl-sensRatio" style="display:none; margin-top:8px">
+        <div class="ctrl-label"><span class="ctrl-name">Sensitivity Ratio (24H÷7D TDD)</span><span class="ctrl-val" id="v-sensRatio">1.00</span></div>
+        <input type="range" id="s-sensRatio" min="0.7" max="1.3" step="0.01" value="1.0" oninput="update()">
+        <div class="ctrl-hints"><span>0.7 (recent low)</span><span>1.3 (recent high)</span></div>
+      </div>
+      <div class="toggle-row" style="margin-top:6px">
+        <span class="toggle-label">Circadian ISF</span>
+        <label class="toggle"><input type="checkbox" id="t-circadian" onchange="toggleDependent('t-circadian','ctrl-circHour'); update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="ctrl" id="ctrl-circHour" style="display:none; margin-top:8px">
+        <div class="ctrl-label"><span class="ctrl-name">Hour of Day</span><span class="ctrl-val" id="v-circHour">12:00</span></div>
+        <input type="range" id="s-circHour" min="0" max="23" step="1" value="12" oninput="update()">
+        <div class="ctrl-hints"><span>0 (midnight)</span><span>23 (11pm)</span></div>
+      </div>
     </div>
   </div>
 
@@ -483,7 +501,108 @@ canvas {
       <div class="ctrl">
         <div class="ctrl-label"><span class="ctrl-name">maxSMBBasalMinutes</span><span class="ctrl-val" id="v-smbMin">30 min</span></div>
         <input type="range" id="s-smbMin" min="15" max="120" step="5" value="30" oninput="update()">
-        <div class="ctrl-hints"><span>15 min</span><span>120 min</span></div>
+        <div class="ctrl-hints"><span>15 min (IOB ≤ -0.2)</span><span>120 min</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">maxUAMSMBBasalMinutes</span><span class="ctrl-val" id="v-uamSmbMin">15 min</span></div>
+        <input type="range" id="s-uamSmbMin" min="15" max="120" step="5" value="15" oninput="update()">
+        <div class="ctrl-hints"><span>15 min (IOB &gt; -0.2)</span><span>120 min</span></div>
+      </div>
+      <div class="toggle-row" style="margin-top:4px">
+        <span class="toggle-label">Enable Percent Scaling</span>
+        <label class="toggle"><input type="checkbox" id="t-percentScale" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="ctrl" style="margin-top:8px">
+        <div class="ctrl-label"><span class="ctrl-name">Percent Scale Factor</span><span class="ctrl-val" id="v-percentScale">200%</span></div>
+        <input type="range" id="s-percentScale" min="50" max="500" step="10" value="200" oninput="update()">
+        <div class="ctrl-hints"><span>50%</span><span>500% (BG 108–180 amplifier)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Activity & Profile -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <span>🏃 Activity &amp; Profile</span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="ctrl">
+        <div class="ctrl-label" style="margin-bottom:6px"><span class="ctrl-name">Activity State</span></div>
+        <select id="s-activityState" onchange="update()" style="width:100%;background:#0f1117;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:6px 8px;font-size:0.8rem;">
+          <option value="normal">Normal (100%)</option>
+          <option value="active">Active (uses Activity %)</option>
+          <option value="inactive">Inactive (uses Inactivity %)</option>
+        </select>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Activity Profile %</span><span class="ctrl-val" id="v-activityPct">80%</span></div>
+        <input type="range" id="s-activityPct" min="30" max="150" step="1" value="80" oninput="update()">
+        <div class="ctrl-hints"><span>30%</span><span>150%</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Inactivity Profile %</span><span class="ctrl-val" id="v-inactivityPct">130%</span></div>
+        <input type="range" id="s-inactivityPct" min="100" max="200" step="1" value="130" oninput="update()">
+        <div class="ctrl-hints"><span>100% (no change)</span><span>200%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Night Mode -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <span>🌙 Night Mode</span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span class="toggle-label">Night Mode Enabled</span>
+        <label class="toggle"><input type="checkbox" id="t-nightMode" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Currently in night window</span>
+        <label class="toggle"><input type="checkbox" id="t-nightActive" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="ctrl" style="margin-top:8px">
+        <div class="ctrl-label"><span class="ctrl-name">Night Mode BG Offset</span><span class="ctrl-val" id="v-nightOffset">27 mg/dL</span></div>
+        <input type="range" id="s-nightOffset" min="0" max="90" step="1" value="27" oninput="update()">
+        <div class="ctrl-hints"><span>0 (at target only)</span><span>90 mg/dL</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Current COB</span><span class="ctrl-val" id="v-cob">0 g</span></div>
+        <input type="range" id="s-cob" min="0" max="100" step="1" value="0" oninput="update()">
+        <div class="ctrl-hints"><span>0 g</span><span>100 g</span></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Disable Night Mode if COB &gt; 0</span>
+        <label class="toggle"><input type="checkbox" id="t-nightModeCob" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+    </div>
+  </div>
+
+  <!-- Temp Target -->
+  <div class="section">
+    <div class="section-header" onclick="toggleSection(this)">
+      <span>🎯 Temp Target</span>
+      <span class="chevron">▾</span>
+    </div>
+    <div class="section-body">
+      <div class="toggle-row">
+        <span class="toggle-label">Temp Target Active</span>
+        <label class="toggle"><input type="checkbox" id="t-tempTarget" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="ctrl" style="margin-top:8px">
+        <div class="ctrl-label"><span class="ctrl-name">Temp Target BG</span><span class="ctrl-val" id="v-tempTargetBg">140 mg/dL</span></div>
+        <input type="range" id="s-tempTargetBg" min="72" max="200" step="1" value="140" oninput="update()">
+        <div class="ctrl-hints"><span>72 (low/correction TT)</span><span>200 (exercise TT)</span></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">High TT raises sensitivity (less insulin)</span>
+        <label class="toggle"><input type="checkbox" id="t-highTtSens" onchange="update()"><div class="toggle-slider"></div></label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Low TT lowers sensitivity (more insulin)</span>
+        <label class="toggle"><input type="checkbox" id="t-lowTtSens" onchange="update()"><div class="toggle-slider"></div></label>
       </div>
     </div>
   </div>
@@ -501,8 +620,11 @@ canvas {
         <button class="scenario-btn" onclick="applyScenario('aggressive')">Aggressive (experienced)</button>
         <button class="scenario-btn" onclick="applyScenario('highTdd')">High TDD user (60U)</button>
         <button class="scenario-btn" onclick="applyScenario('lowTdd')">Low TDD user (20U)</button>
-        <button class="scenario-btn" onclick="applyScenario('risingMeal')">Post-meal rising BG</button>
+        <button class="scenario-btn" onclick="applyScenario('risingMeal')">Post-meal + percent scaling</button>
         <button class="scenario-btn" onclick="applyScenario('highBgFlat')">High BG, flat delta</button>
+        <button class="scenario-btn" onclick="applyScenario('exercise')">Exercise (active + high TT)</button>
+        <button class="scenario-btn" onclick="applyScenario('sedentary')">Sedentary / inactive</button>
+        <button class="scenario-btn" onclick="applyScenario('nightSleep')">Night Mode near target</button>
       </div>
     </div>
   </div>
@@ -671,6 +793,18 @@ canvas {
 // Core math — mirrors Boost plugin Kotlin exactly
 // ════════════════════════════════════════════════════════════
 
+// Circadian sensitivity polynomial (DetermineBasalBoost.kt lines 75-89)
+function getCircadianSensitivity(hour) {
+  const n = Math.max(hour, 0);
+  if (n < 2)  return (0.09130*Math.pow(Math.max(n,0.5),3)) - (0.33261*Math.pow(Math.max(n,0.5),2)) + 1.4;
+  if (n < 3)  return (0.0869*Math.pow(n,3)) - (0.05217*Math.pow(n,2)) - (0.23478*n) + 0.8;
+  if (n < 8)  return (0.0007*Math.pow(n,3)) - (0.000730*Math.pow(n,2)) - (0.0007826*n) + 0.6;
+  if (n < 11) return (0.001244*Math.pow(n,3)) - (0.007619*Math.pow(n,2)) - (0.007826*n) + 0.4;
+  if (n < 15) return (0.00078*Math.pow(n,3)) - (0.00272*Math.pow(n,2)) - (0.07619*n) + 0.8;
+  if (n <= 22) return 1.0;
+  return (0.000125*Math.pow(n,3)) - (0.0015*Math.pow(n,2)) - (0.0045*n) + 1.2;
+}
+
 function calcInsulinDivisor(peak) {
   // From OpenAPSBoostPlugin.kt line 594
   return peak < 60 ? (90 - peak) + 30 : (90 - peak) + 40;
@@ -712,25 +846,54 @@ function calcIsfAtBg(bg, sensNT, normalTarget, divisor, velocity, bgCap) {
 // Inputs
 // ════════════════════════════════════════════════════════════
 function getInputs() {
+  const g = id => document.getElementById(id);
+  const gf = id => parseFloat(g(id).value);
+  const gb = id => g(id).checked;
+  const gs = id => g(id).value;
   return {
-    tdd:          parseFloat(document.getElementById('s-tdd').value),
-    profIsf:      parseFloat(document.getElementById('s-profIsf').value),
-    basal:        parseFloat(document.getElementById('s-basal').value),
-    bg:           parseFloat(document.getElementById('s-bg').value),
-    delta:        parseFloat(document.getElementById('s-delta').value),
-    target:       parseFloat(document.getElementById('s-target').value),
-    iob:          parseFloat(document.getElementById('s-iob').value),
-    peak:         parseFloat(document.getElementById('s-peak').value),
-    useTdd:       document.getElementById('t-useTdd').checked,
-    normTarget:   parseFloat(document.getElementById('s-normTarget').value),
-    bgCap:        parseFloat(document.getElementById('s-bgCap').value),
-    velocity:     parseFloat(document.getElementById('s-velocity').value) / 100,
-    tddAdj:       parseFloat(document.getElementById('s-tddAdj').value) / 100,
-    scale:        parseFloat(document.getElementById('s-scale').value),
-    maxIob:       parseFloat(document.getElementById('s-maxIob').value),
-    bolusMax:     parseFloat(document.getElementById('s-bolusMax').value),
-    insulinReqPct:parseFloat(document.getElementById('s-insulinReqPct').value) / 100,
-    smbMin:       parseFloat(document.getElementById('s-smbMin').value),
+    // Patient / insulin
+    tdd:           gf('s-tdd'),
+    profIsf:       gf('s-profIsf'),
+    basal:         gf('s-basal'),
+    bg:            gf('s-bg'),
+    delta:         gf('s-delta'),
+    target:        gf('s-target'),
+    iob:           gf('s-iob'),
+    peak:          gf('s-peak'),
+    // Dynamic ISF
+    useTdd:        gb('t-useTdd'),
+    normTarget:    gf('s-normTarget'),
+    bgCap:         gf('s-bgCap'),
+    velocity:      gf('s-velocity') / 100,
+    tddAdj:        gf('s-tddAdj') / 100,
+    adjustSens:    gb('t-adjustSens'),
+    sensRatio:     gf('s-sensRatio'),
+    circadian:     gb('t-circadian'),
+    circHour:      gf('s-circHour'),
+    // SMB Controls
+    scale:         gf('s-scale'),
+    maxIob:        gf('s-maxIob'),
+    bolusMax:      gf('s-bolusMax'),
+    insulinReqPct: gf('s-insulinReqPct') / 100,
+    smbMin:        gf('s-smbMin'),
+    uamSmbMin:     gf('s-uamSmbMin'),
+    percentScale:  gb('t-percentScale'),
+    percentScaleVal: gf('s-percentScale') / 100,
+    // Activity
+    activityState: gs('s-activityState'),
+    activityPct:   gf('s-activityPct'),
+    inactivityPct: gf('s-inactivityPct'),
+    // Night Mode
+    nightMode:     gb('t-nightMode'),
+    nightActive:   gb('t-nightActive'),
+    nightOffset:   gf('s-nightOffset'),
+    cob:           gf('s-cob'),
+    nightModeCob:  gb('t-nightModeCob'),
+    // Temp Target
+    tempTarget:    gb('t-tempTarget'),
+    tempTargetBg:  gf('s-tempTargetBg'),
+    highTtSens:    gb('t-highTtSens'),
+    lowTtSens:     gb('t-lowTtSens'),
   };
 }
 
@@ -741,90 +904,142 @@ function fmt(v, dp=1) {
 
 function calcAll(inp) {
   const divisor = calcInsulinDivisor(inp.peak);
-  const adjustedTdd = inp.tdd * inp.tddAdj;
 
-  // sensNormalTarget
+  // ── Profile % from activity state ─────────────────────────
+  let profilePct;
+  switch (inp.activityState) {
+    case 'active':   profilePct = inp.activityPct;   break;
+    case 'inactive': profilePct = inp.inactivityPct; break;
+    default:         profilePct = 100;               break;
+  }
+  const profileScale = profilePct / 100.0;
+  // globalScale mirrors OpenAPSBoostPlugin.kt line 256: 100.0 / profilePercent
+  const globalScale  = 100.0 / profilePct;
+  const effectiveBasal = inp.basal * profileScale;
+
+  // ── TDD & ISF at normal target ────────────────────────────
+  const adjustedTdd = inp.tdd * inp.tddAdj;
+  const scaledProfileIsf = inp.profIsf * profileScale;
+
   let sensNTV1, sensNTV2;
   if (inp.useTdd && adjustedTdd > 0) {
     sensNTV1 = calcSensNormalTargetV1(adjustedTdd, inp.normTarget, divisor);
     sensNTV2 = calcSensNormalTargetV2(adjustedTdd, inp.normTarget, divisor);
   } else {
-    sensNTV1 = inp.profIsf;
-    sensNTV2 = inp.profIsf;
+    sensNTV1 = scaledProfileIsf;
+    sensNTV2 = scaledProfileIsf;
   }
 
-  // Boost global scale applies to sensNormalTarget
-  if (sensNTV1 != null) sensNTV1 *= (inp.scale > 0 ? 1.0 : 1.0); // scale affects dosing, not ISF
-  if (sensNTV2 != null) sensNTV2 *= 1.0;
+  // Apply globalScale (profile %) — mirrors plugin line 310: sensNormalTarget *= globalScale
+  if (sensNTV1 != null) sensNTV1 *= globalScale;
+  if (sensNTV2 != null) sensNTV2 *= globalScale;
 
-  // ISF at current BG
+  // ── TDD Sensitivity Adjustment ────────────────────────────
+  // mirrors plugin lines 313-316: sensNormalTarget /= ratio  (ratio = 24H/7D)
+  if (inp.adjustSens && inp.sensRatio > 0) {
+    const ratio = Math.max(0.7, Math.min(1.3, inp.sensRatio));
+    if (sensNTV1) sensNTV1 /= ratio;
+    if (sensNTV2) sensNTV2 /= ratio;
+  }
+
+  // ── Temp target ISF adjustment ────────────────────────────
+  // mirrors plugin lines 331-340
+  const halfBasalTarget = 160; // SMBDefaults.half_basal_exercise_target
+  let ttRatioApplied = 1.0;
+  if (inp.tempTarget) {
+    const tt = inp.tempTargetBg;
+    const c  = halfBasalTarget - inp.normTarget;
+    const doAdjust = (inp.highTtSens && tt > inp.normTarget) ||
+                     (inp.lowTtSens  && tt < inp.normTarget);
+    if (doAdjust && c !== 0) {
+      const denom = c + tt - inp.normTarget;
+      if (denom !== 0 && c * denom > 0) {
+        ttRatioApplied = Math.max(0.7, Math.min(1.3, c / denom));
+        if (sensNTV1) sensNTV1 /= ttRatioApplied;
+        if (sensNTV2) sensNTV2 /= ttRatioApplied;
+      }
+    }
+  }
+
+  // ── Circadian ISF ─────────────────────────────────────────
+  let circFactor = 1.0;
+  if (inp.circadian) {
+    circFactor = getCircadianSensitivity(inp.circHour);
+    if (sensNTV1) sensNTV1 *= circFactor;
+    if (sensNTV2) sensNTV2 *= circFactor;
+  }
+
+  // ── ISF at current BG ─────────────────────────────────────
   const bgCapped = capBg(inp.bg, inp.bgCap);
-  const isfV1 = sensNTV1 != null ? calcIsfAtBg(inp.bg, sensNTV1, inp.normTarget, divisor, inp.velocity, inp.bgCap) : inp.profIsf;
-  const isfV2 = sensNTV2 != null ? calcIsfAtBg(inp.bg, sensNTV2, inp.normTarget, divisor, 1.0, inp.bgCap) : inp.profIsf; // V2: velocity always 1.0
+  const isfV1 = (sensNTV1 != null)
+    ? calcIsfAtBg(inp.bg, sensNTV1, inp.normTarget, divisor, inp.velocity, inp.bgCap)
+    : scaledProfileIsf;
+  const isfV2 = (sensNTV2 != null)
+    ? calcIsfAtBg(inp.bg, sensNTV2, inp.normTarget, divisor, 1.0, inp.bgCap)
+    : scaledProfileIsf;
 
-  // Max bolus from basal minutes
-  const maxBasalBolus = inp.basal * inp.smbMin / 60.0;
+  // ── SMB max bolus ──────────────────────────────────────────
+  // IOB > -0.2 → maxUAMSMBBasalMinutes; else → maxSMBBasalMinutes
+  // mirrors DetermineBasalBoost.kt lines 1035-1041
+  const smbMinToUse = (inp.iob > -0.2) ? inp.uamSmbMin : inp.smbMin;
+  const maxBasalBolus = effectiveBasal * smbMinToUse / 60.0;
 
-  // insulinReq simplified: (BG - target) / ISF_V1
-  // Using V1 ISF for estimate (applies future_sens logic simplified)
+  // ── insulinReq (simplified) ───────────────────────────────
   const insulinReqV1 = Math.max(0, (inp.bg - inp.target) / isfV1);
 
-  // Boost scale applies to bolus amount at Tier 3+
-  const boostedInsReq = Math.min(inp.scale * inp.basal, inp.bolusMax);
+  // ── insulinReq divisor (Percent Scaling changes it) ───────
+  // mirrors DetermineBasalBoost.kt lines 1049-1068
+  const baseReqDivisor = 1.0 / inp.insulinReqPct;
+  let scaledDivisor = baseReqDivisor;
+  if (inp.percentScale) {
+    const scale_pct = 100.0 / (inp.percentScaleVal * profileScale);
+    if (inp.bg < 108) {
+      scaledDivisor = scale_pct;
+    } else {
+      // sliding scale between scale_pct and baseReqDivisor across 108–180 window
+      scaledDivisor = baseReqDivisor - ((Math.abs(inp.bg - 180) / 72) * (baseReqDivisor - scale_pct));
+    }
+  }
 
-  // Simplified microbolus estimate (Tier 1 / standard path):
-  // microBolus = floor(min(insulinReq / insulinReqDivisor, maxBasalBolus, bolusMax) to bolus_increment)
-  const insulinReqDivisor = 1.0 / inp.insulinReqPct;
-  let rawMicroBolus = Math.min(insulinReqV1 / insulinReqDivisor, maxBasalBolus, inp.bolusMax);
-  rawMicroBolus = Math.max(0, rawMicroBolus);
+  // ── Night mode suppression ────────────────────────────────
+  const nightSuppressed = inp.nightMode && inp.nightActive &&
+    (inp.bg < (inp.target + inp.nightOffset)) &&
+    !(inp.nightModeCob && inp.cob > 0);
 
-  // IOB check
-  const ioBlock = inp.iob > inp.maxIob;
+  // ── Final microbolus ──────────────────────────────────────
+  const ioBlock          = inp.iob > inp.maxIob;
   const boostDisabledScale = inp.scale >= 3.0;
+  let rawMicroBolus = Math.max(0, Math.min(insulinReqV1 / scaledDivisor, maxBasalBolus, inp.bolusMax));
+  const blocked = ioBlock || boostDisabledScale || nightSuppressed;
+  const microBolus = blocked ? 0 : Math.floor(rawMicroBolus * 20) / 20;
 
-  // Effective microbolus
-  const microBolus = ioBlock || boostDisabledScale ? 0 : Math.floor(rawMicroBolus * 20) / 20; // round to 0.05
-
-  // Aggressiveness score 0-1
-  // Weighted combination of key factors
-  const aggScore = computeAggScore(inp, isfV1, inp.profIsf, maxBasalBolus);
+  const aggScore = computeAggScore(inp, isfV1, inp.profIsf, maxBasalBolus, profilePct, nightSuppressed);
 
   return {
-    divisor, adjustedTdd,
-    sensNTV1, sensNTV2,
-    isfV1, isfV2,
-    maxBasalBolus, insulinReqV1, rawMicroBolus, microBolus,
-    bgCapped, ioBlock, boostDisabledScale,
+    divisor, adjustedTdd, profilePct, effectiveBasal, globalScale,
+    scaledProfileIsf, sensNTV1, sensNTV2,
+    isfV1, isfV2, bgCapped,
+    smbMinToUse, maxBasalBolus,
+    insulinReqV1, scaledDivisor, baseReqDivisor, rawMicroBolus, microBolus,
+    ioBlock, boostDisabledScale, nightSuppressed,
+    ttRatioApplied, circFactor,
     aggScore,
   };
 }
 
-function computeAggScore(inp, isfV1, profIsf, maxBasalBolus) {
-  let score = 0.5; // baseline
-
-  // ISF ratio: lower ISF = more aggressive (profIsf/isfV1 > 1 means more agg)
-  const isfRatio = profIsf / isfV1;
+function computeAggScore(inp, isfV1, profIsf, maxBasalBolus, profilePct, nightSuppressed) {
+  let score = 0.5;
+  const isfRatio = profIsf / Math.max(isfV1, 1);
   score += (isfRatio - 1) * 0.15;
-
-  // Scale: 1.0 = neutral, >1 = aggressive, <1 = conservative
   score += (inp.scale - 1.0) * 0.12;
-
-  // InsulinReqPct: higher = more aggressive
   score += (inp.insulinReqPct - 0.5) * 0.2;
-
-  // Max IOB headroom
-  const iobHead = (inp.maxIob - inp.iob) / inp.maxIob;
+  const iobHead = inp.maxIob > 0 ? (inp.maxIob - inp.iob) / inp.maxIob : 0;
   score += (iobHead - 0.5) * 0.1;
-
-  // Bolus max
   score += (inp.bolusMax - 2.5) / 15.0 * 0.1;
-
-  // maxSMBBasalMinutes
-  score += (inp.smbMin - 30) / 90.0 * 0.08;
-
-  // Velocity (higher = more BG reactive = more aggressive overall)
+  score += (inp.uamSmbMin - 30) / 90.0 * 0.08;
   score += (inp.velocity - 0.5) * 0.05;
-
+  score += (profilePct - 100) / 100 * 0.1;
+  if (nightSuppressed) score -= 0.15;
   return Math.max(0.02, Math.min(0.98, score));
 }
 
@@ -832,19 +1047,26 @@ function computeAggScore(inp, isfV1, profIsf, maxBasalBolus) {
 // UI update
 // ════════════════════════════════════════════════════════════
 function update() {
-  // Sync labels
+  // Sync slider labels
   const sl = (id, suffix) => {
     const el = document.getElementById('s-' + id);
-    const val = el.value;
-    document.getElementById('v-' + id).textContent = val + (suffix || '');
+    if (!el) return;
+    document.getElementById('v-' + id).textContent = el.value + (suffix || '');
   };
-  sl('tdd', ' U'); sl('profIsf', ' mg/U'); sl('basal', ' U/hr');
-  sl('bg', ' mg/dL'); sl('delta', ' mg/dL/5m'); sl('target', ' mg/dL');
-  sl('iob', ' U'); sl('peak', ' min');
-  sl('normTarget', ' mg/dL'); sl('bgCap', ' mg/dL');
-  sl('velocity', '%'); sl('tddAdj', '%');
-  sl('scale', ''); sl('maxIob', ' U'); sl('bolusMax', ' U');
-  sl('insulinReqPct', '%'); sl('smbMin', ' min');
+  sl('tdd',' U'); sl('profIsf',' mg/U'); sl('basal',' U/hr');
+  sl('bg',' mg/dL'); sl('delta',' mg/dL/5m'); sl('target',' mg/dL');
+  sl('iob',' U'); sl('peak',' min');
+  sl('normTarget',' mg/dL'); sl('bgCap',' mg/dL');
+  sl('velocity','%'); sl('tddAdj','%');
+  sl('sensRatio','');
+  const circHour = parseInt(document.getElementById('s-circHour').value);
+  document.getElementById('v-circHour').textContent = `${String(circHour).padStart(2,'0')}:00`;
+  sl('scale',''); sl('maxIob',' U'); sl('bolusMax',' U');
+  sl('insulinReqPct','%'); sl('smbMin',' min'); sl('uamSmbMin',' min');
+  sl('percentScale','%');
+  sl('activityPct','%'); sl('inactivityPct','%');
+  sl('nightOffset',' mg/dL'); sl('cob',' g');
+  sl('tempTargetBg',' mg/dL');
 
   const inp = getInputs();
   const r = calcAll(inp);
@@ -852,12 +1074,17 @@ function update() {
   // Status pills
   const pills = [];
   if (r.boostDisabledScale) pills.push({text:'Boost DISABLED (scale ≥ 3)', cls:'pill-red'});
-  else pills.push({text:'Boost ACTIVE', cls:'pill-green'});
-  if (r.ioBlock) pills.push({text:`IOB ${fmt(inp.iob,1)}U > maxIOB ${fmt(inp.maxIob,1)}U — SMBs blocked`, cls:'pill-red'});
+  else                       pills.push({text:'Boost ACTIVE', cls:'pill-green'});
+  if (r.ioBlock)       pills.push({text:`IOB ${fmt(inp.iob,1)}U > maxIOB ${fmt(inp.maxIob,1)}U — SMBs blocked`, cls:'pill-red'});
+  if (r.nightSuppressed) pills.push({text:`Night Mode suppressing SMBs (BG ${inp.bg} < target+${inp.nightOffset})`, cls:'pill-yellow'});
   if (inp.bg < inp.target) pills.push({text:`BG ${fmt(inp.bg,0)} below target`, cls:'pill-yellow'});
-  if (r.bgCapped < inp.bg) pills.push({text:`BG capped at ${fmt(r.bgCapped,0)} for dosing`, cls:'pill-yellow'});
-  if (!inp.useTdd) pills.push({text:'TDD ISF disabled — using profile ISF', cls:'pill-yellow'});
-  if (inp.scale >= 2.5) pills.push({text:'High scale — approaching disable threshold', cls:'pill-yellow'});
+  if (r.bgCapped < inp.bg) pills.push({text:`BG capped at ${fmt(r.bgCapped,0)} for ISF`, cls:'pill-yellow'});
+  if (!inp.useTdd)     pills.push({text:'TDD ISF disabled — using profile ISF', cls:'pill-yellow'});
+  if (inp.scale >= 2.5) pills.push({text:'Scale approaching disable threshold (≥3)', cls:'pill-yellow'});
+  if (r.profilePct !== 100) pills.push({text:`Profile at ${r.profilePct}% (${inp.activityState})`, cls:'pill-gray'});
+  if (inp.circadian)   pills.push({text:`Circadian factor: ×${fmt(r.circFactor,2)} at ${circHour}:00`, cls:'pill-gray'});
+  if (inp.tempTarget && r.ttRatioApplied !== 1.0) pills.push({text:`TT ISF ratio: ${fmt(r.ttRatioApplied,2)} (TT=${inp.tempTargetBg})`, cls:'pill-gray'});
+  if (r.smbMinToUse === inp.uamSmbMin) pills.push({text:`Using UAM SMB minutes (${inp.uamSmbMin}m) — IOB > -0.2`, cls:'pill-gray'});
 
   document.getElementById('status-row').innerHTML = pills.map(p =>
     `<span class="pill ${p.cls}">${p.text}</span>`).join('');
@@ -886,41 +1113,55 @@ function update() {
 
   // ISF breakdown text
   let breakdown = '';
+  if (r.profilePct !== 100) {
+    breakdown += `Profile at ${r.profilePct}% (${inp.activityState}) → globalScale ×${fmt(r.globalScale,3)}\n`;
+    breakdown += `Effective basal: ${fmt(r.effectiveBasal,3)} U/hr | scaledProfileISF: ${fmt(r.scaledProfileIsf,1)}\n`;
+  }
   if (inp.useTdd) {
     breakdown += `Adjusted TDD: ${fmt(r.adjustedTdd,1)} U (${inp.tdd} × ${(inp.tddAdj*100).toFixed(0)}%)\n`;
-    breakdown += `insulinDivisor: ${r.divisor}  (peak ${inp.peak}min)\n`;
-    breakdown += `V1 sensNT: 1800 ÷ (${fmt(r.adjustedTdd,1)} × ln(${inp.normTarget}÷${r.divisor}+1)) = ${fmt(r.sensNTV1,1)} mg/dL/U\n`;
-    breakdown += `V2 sensNT: 2300 ÷ (ln(${inp.normTarget}÷${r.divisor}+1) × ${fmt(r.adjustedTdd,1)}² × 0.02) = ${fmt(r.sensNTV2,1)} mg/dL/U\n`;
-    if (r.bgCapped < inp.bg) {
-      breakdown += `BG ${inp.bg} > cap ${inp.bgCap} → adjusted to ${fmt(r.bgCapped,1)} mg/dL\n`;
-    }
-    const scaler1 = Math.log(inp.normTarget/r.divisor+1) / Math.log(Math.max(r.bgCapped,1)/r.divisor+1);
-    breakdown += `V1 scaler at BG ${inp.bg}: ${fmt(scaler1,3)} | velocity: ${(inp.velocity*100).toFixed(0)}%\n`;
-    breakdown += `V1 ISF at BG: ${fmt(r.sensNTV1,1)} × (1-(1-${fmt(scaler1,3)})×${fmt(inp.velocity,2)}) = ${fmt(r.isfV1,1)}\n`;
-    breakdown += `V2 ISF at BG: ${fmt(r.sensNTV2,1)} × ${fmt(scaler1,3)} = ${fmt(r.isfV2,1)} (velocity=1.0 always)`;
+    breakdown += `insulinDivisor: ${r.divisor} (peak ${inp.peak}min)\n`;
+    const rawV1 = calcSensNormalTargetV1(r.adjustedTdd, inp.normTarget, r.divisor);
+    const rawV2 = calcSensNormalTargetV2(r.adjustedTdd, inp.normTarget, r.divisor);
+    breakdown += `V1 raw sensNT: 1800÷(${fmt(r.adjustedTdd,1)}×ln(${inp.normTarget}÷${r.divisor}+1)) = ${fmt(rawV1,1)}\n`;
+    breakdown += `V2 raw sensNT: 2300÷(ln(${inp.normTarget}÷${r.divisor}+1)×${fmt(r.adjustedTdd,1)}²×0.02) = ${fmt(rawV2,1)}\n`;
+    breakdown += `After globalScale ×${fmt(r.globalScale,3)}: V1=${fmt(rawV1!=null?rawV1*r.globalScale:null,1)} V2=${fmt(rawV2!=null?rawV2*r.globalScale:null,1)}\n`;
   } else {
-    breakdown = `TDD-based ISF disabled — using profile ISF ${inp.profIsf} mg/dL/U for both V1 and V2`;
+    breakdown += `TDD ISF disabled → using scaledProfileISF ${fmt(r.scaledProfileIsf,1)} mg/dL/U\n`;
   }
+  if (inp.adjustSens) breakdown += `TDD Sens Adjustment: ratio=${fmt(inp.sensRatio,2)} → ISF÷${fmt(inp.sensRatio,2)}\n`;
+  if (inp.tempTarget && r.ttRatioApplied !== 1.0) breakdown += `TT adjustment: ratio=${fmt(r.ttRatioApplied,3)} (TT=${inp.tempTargetBg} vs normTarget=${inp.normTarget})\n`;
+  if (inp.circadian) breakdown += `Circadian factor at ${circHour}:00 = ×${fmt(r.circFactor,3)}\n`;
+  if (r.bgCapped < inp.bg) breakdown += `BG ${inp.bg} > cap ${inp.bgCap} → capped to ${fmt(r.bgCapped,1)}\n`;
+  const scaler1 = Math.log(inp.normTarget/r.divisor+1) / Math.log(Math.max(r.bgCapped,1)/r.divisor+1);
+  breakdown += `scaler at BG ${inp.bg}: ${fmt(scaler1,3)} | V1 velocity: ${(inp.velocity*100).toFixed(0)}%\n`;
+  breakdown += `V1 ISF: ${fmt(r.sensNTV1,1)} × (1-(1-${fmt(scaler1,3)})×${fmt(inp.velocity,2)}) = ${fmt(r.isfV1,1)}\n`;
+  breakdown += `V2 ISF: ${fmt(r.sensNTV2,1)} × ${fmt(scaler1,3)} = ${fmt(r.isfV2,1)} (velocity always 1.0)`;
   document.getElementById('out-isf-breakdown').textContent = breakdown;
 
   // SMB cells
   document.getElementById('out-maxBolus').textContent = fmt(r.maxBasalBolus, 2) + ' U';
   document.getElementById('out-insulinReq').textContent = fmt(r.insulinReqV1, 2) + ' U';
-  document.getElementById('out-microBolus').textContent = r.ioBlock || r.boostDisabledScale ? '0 (blocked)' : fmt(r.microBolus, 2) + ' U';
+  const blockedLabel = r.boostDisabledScale ? '0 (scale≥3)' : r.ioBlock ? '0 (IOB limit)' : r.nightSuppressed ? '0 (night mode)' : fmt(r.microBolus, 2) + ' U';
+  document.getElementById('out-microBolus').textContent = blockedLabel;
 
   let smbBreak = '';
   if (r.boostDisabledScale) {
-    smbBreak = `⚠ Boost disabled: scale (${inp.scale}) ≥ 3.0. Algorithm falls back to standard oref1.`;
+    smbBreak = `⚠ Boost disabled: scale (${inp.scale}) ≥ 3.0 → falls back to standard oref1.`;
   } else if (r.ioBlock) {
-    smbBreak = `⚠ SMB blocked: IOB ${fmt(inp.iob,1)}U exceeds maxIOB ${inp.maxIob}U. No Boost SMB will fire.`;
+    smbBreak = `⚠ SMBs blocked: IOB ${fmt(inp.iob,1)}U > maxIOB ${inp.maxIob}U.\n  Boost falls back to oref1 basal adjustment only.`;
+  } else if (r.nightSuppressed) {
+    smbBreak = `⚠ Night Mode suppressing SMBs:\n  BG ${inp.bg} < target(${inp.target}) + offset(${inp.nightOffset}) = ${inp.target+inp.nightOffset}\n  `;
+    smbBreak += inp.nightModeCob && inp.cob > 0 ? `(would unblock with COB ${inp.cob}g — but Disable NM if COB is OFF)` : `(re-enable: raise offset, or turn on "Disable NM if COB>0" with COB present)`;
   } else {
-    const insulinReqDivisor = 1.0 / inp.insulinReqPct;
-    smbBreak = `insulinReq (simplified): (${inp.bg} - ${inp.target}) ÷ ${fmt(r.isfV1,1)} = ${fmt(r.insulinReqV1,3)} U\n`;
-    smbBreak += `insulinReqPct divisor: 1 ÷ ${(inp.insulinReqPct*100).toFixed(0)}% = ${fmt(insulinReqDivisor,3)}\n`;
-    smbBreak += `insulinReq ÷ divisor: ${fmt(r.insulinReqV1,3)} ÷ ${fmt(insulinReqDivisor,3)} = ${fmt(r.insulinReqV1/insulinReqDivisor,3)} U\n`;
-    smbBreak += `maxBasalBolus: ${fmt(inp.basal,2)} U/hr × ${inp.smbMin}min ÷ 60 = ${fmt(r.maxBasalBolus,3)} U\n`;
-    smbBreak += `bolusMax cap: ${inp.bolusMax} U\n`;
-    smbBreak += `Final (min of above, rounded to 0.05): ${fmt(r.microBolus,2)} U`;
+    smbBreak = `insulinReq: (${inp.bg} - ${inp.target}) ÷ ISF ${fmt(r.isfV1,1)} = ${fmt(r.insulinReqV1,3)} U\n`;
+    smbBreak += `SMB minutes (IOB ${fmt(inp.iob,1)}>${-0.2 ? 'UAM' : 'SMB'}): ${r.smbMinToUse}min → maxBasalBolus = ${fmt(r.effectiveBasal,3)}×${r.smbMinToUse}÷60 = ${fmt(r.maxBasalBolus,3)} U\n`;
+    if (inp.percentScale) {
+      smbBreak += `Percent Scaling active (BG=${inp.bg}): scaledDivisor = ${fmt(r.scaledDivisor,3)} (base=${fmt(r.baseReqDivisor,3)})\n`;
+    } else {
+      smbBreak += `insulinReqPct divisor: 1÷${(inp.insulinReqPct*100).toFixed(0)}% = ${fmt(r.baseReqDivisor,3)}\n`;
+    }
+    smbBreak += `insulinReq÷divisor = ${fmt(r.insulinReqV1/r.scaledDivisor,3)} U | bolusMax cap: ${inp.bolusMax} U\n`;
+    smbBreak += `Final (min of above, rounded to 0.05U): ${fmt(r.microBolus,2)} U`;
   }
   document.getElementById('out-smb-breakdown').textContent = smbBreak;
 
@@ -1255,41 +1496,51 @@ function drawSmbChart(inp, r) {
 // ════════════════════════════════════════════════════════════
 // Scenarios
 // ════════════════════════════════════════════════════════════
+// Base defaults applied to every scenario (prevents stale values from previous scenario)
+const DEFAULTS = {
+  tdd:40, profIsf:50, basal:1.0, bg:140, delta:2, target:100, iob:0.5, peak:55,
+  useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
+  adjustSens:false, sensRatio:1.0, circadian:false, circHour:12,
+  scale:1.0, maxIob:1.0, bolusMax:2.5, insulinReqPct:50, smbMin:30, uamSmbMin:15,
+  percentScale:false, percentScale:200,
+  activityState:'normal', activityPct:80, inactivityPct:130,
+  nightMode:false, nightActive:false, nightOffset:27, cob:0, nightModeCob:false,
+  tempTarget:false, tempTargetBg:140, highTtSens:false, lowTtSens:false,
+};
 const scenarios = {
-  default:       { tdd:40, profIsf:50, basal:1.0, bg:140, delta:2, target:100, iob:0.5, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
-                   scale:1.0, maxIob:1.0, bolusMax:2.5, insulinReqPct:50, smbMin:30 },
-  conservative:  { tdd:40, profIsf:50, basal:1.0, bg:140, delta:2, target:100, iob:0.5, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:50, tddAdj:100,
-                   scale:0.7, maxIob:0.5, bolusMax:1.0, insulinReqPct:35, smbMin:20 },
-  aggressive:    { tdd:40, profIsf:50, basal:1.0, bg:160, delta:4, target:100, iob:0.2, peak:55,
-                   useTdd:true, normTarget:90, bgCap:180, velocity:100, tddAdj:110,
-                   scale:1.5, maxIob:3.0, bolusMax:4.0, insulinReqPct:80, smbMin:60 },
-  highTdd:       { tdd:60, profIsf:30, basal:1.5, bg:150, delta:3, target:100, iob:0.5, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
-                   scale:1.0, maxIob:2.0, bolusMax:3.0, insulinReqPct:50, smbMin:30 },
-  lowTdd:        { tdd:20, profIsf:80, basal:0.5, bg:130, delta:1, target:100, iob:0.1, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
-                   scale:1.0, maxIob:0.5, bolusMax:1.5, insulinReqPct:50, smbMin:30 },
-  risingMeal:    { tdd:40, profIsf:50, basal:1.0, bg:180, delta:8, target:100, iob:0.3, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
-                   scale:1.0, maxIob:1.0, bolusMax:2.5, insulinReqPct:50, smbMin:30 },
-  highBgFlat:    { tdd:40, profIsf:50, basal:1.0, bg:240, delta:0, target:100, iob:1.5, peak:55,
-                   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
-                   scale:1.0, maxIob:1.0, bolusMax:2.5, insulinReqPct:50, smbMin:30 },
+  default:      { ...DEFAULTS },
+  conservative: { ...DEFAULTS, velocity:50, tddAdj:100, scale:0.7, maxIob:0.5, bolusMax:1.0, insulinReqPct:35, smbMin:20, uamSmbMin:15 },
+  aggressive:   { ...DEFAULTS, bg:160, delta:4, iob:0.2, normTarget:90, bgCap:180, tddAdj:110, scale:1.5, maxIob:3.0, bolusMax:4.0, insulinReqPct:80, smbMin:60, uamSmbMin:30 },
+  highTdd:      { ...DEFAULTS, tdd:60, profIsf:30, basal:1.5, bg:150, delta:3, iob:0.5, maxIob:2.0, bolusMax:3.0, uamSmbMin:20 },
+  lowTdd:       { ...DEFAULTS, tdd:20, profIsf:80, basal:0.5, bg:130, delta:1, iob:0.1, maxIob:0.5, bolusMax:1.5 },
+  risingMeal:   { ...DEFAULTS, bg:180, delta:8, iob:0.3, percentScale:true, percentScaleVal:200, cob:30 },
+  highBgFlat:   { ...DEFAULTS, bg:240, delta:0, iob:1.5, maxIob:3.0 },
+  exercise:     { ...DEFAULTS, activityState:'active', activityPct:80, tempTarget:true, tempTargetBg:160, highTtSens:true },
+  sedentary:    { ...DEFAULTS, activityState:'inactive', inactivityPct:130 },
+  nightSleep:   { ...DEFAULTS, bg:105, delta:0, iob:0.2, nightMode:true, nightActive:true, nightOffset:27 },
 };
 
 function applyScenario(key) {
   const s = scenarios[key];
   if (!s) return;
   Object.keys(s).forEach(k => {
-    const el = document.getElementById('s-' + k) || document.getElementById('t-' + k);
-    if (el) {
-      if (el.type === 'checkbox') el.checked = s[k];
-      else el.value = s[k];
-    }
+    const sel = document.getElementById('s-' + k);
+    const tog = document.getElementById('t-' + k);
+    if (sel) sel.value = s[k];
+    if (tog) tog.checked = s[k];
+  });
+  // sync dependent visibility
+  ['adjustSens', 'circadian'].forEach(k => {
+    const deps = {'adjustSens':'ctrl-sensRatio', 'circadian':'ctrl-circHour'};
+    toggleDependent('t-'+k, deps[k]);
   });
   update();
+}
+
+function toggleDependent(toggleId, targetId) {
+  const on = document.getElementById(toggleId).checked;
+  const el = document.getElementById(targetId);
+  if (el) el.style.display = on ? 'block' : 'none';
 }
 
 function toggleSection(header) {
