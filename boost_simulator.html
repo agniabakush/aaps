@@ -397,9 +397,19 @@ canvas {
         <div class="ctrl-hints"><span>40</span><span>350 mg/dL</span></div>
       </div>
       <div class="ctrl">
-        <div class="ctrl-label"><span class="ctrl-name">BG delta</span><span class="ctrl-val" id="v-delta">+2 mg/dL/5m</span></div>
+        <div class="ctrl-label"><span class="ctrl-name">BG delta (current 5min)</span><span class="ctrl-val" id="v-delta">+2 mg/dL/5m</span></div>
         <input type="range" id="s-delta" min="-10" max="15" step="0.5" value="2" oninput="update()">
         <div class="ctrl-hints"><span>-10 (falling)</span><span>+15 (rising)</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Short avg delta (15–20 min)</span><span class="ctrl-val" id="v-shortAvgDelta">+1.5 mg/dL/5m</span></div>
+        <input type="range" id="s-shortAvgDelta" min="-10" max="15" step="0.5" value="1.5" oninput="update()">
+        <div class="ctrl-hints"><span>-10</span><span>+15 mg/dL/5m</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Long avg delta (30–40 min)</span><span class="ctrl-val" id="v-longAvgDelta">+1.0 mg/dL/5m</span></div>
+        <input type="range" id="s-longAvgDelta" min="-10" max="15" step="0.5" value="1.0" oninput="update()">
+        <div class="ctrl-hints"><span>-10</span><span>+15 mg/dL/5m</span></div>
       </div>
       <div class="ctrl">
         <div class="ctrl-label"><span class="ctrl-name">Profile target BG</span><span class="ctrl-val" id="v-target">100 mg/dL</span></div>
@@ -572,6 +582,20 @@ canvas {
         <div class="ctrl-label"><span class="ctrl-name">Current COB</span><span class="ctrl-val" id="v-cob">0 g</span></div>
         <input type="range" id="s-cob" min="0" max="100" step="1" value="0" oninput="update()">
         <div class="ctrl-hints"><span>0 g</span><span>100 g</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Mins since last carb</span><span class="ctrl-val" id="v-lastCarbAge">60 min</span></div>
+        <input type="range" id="s-lastCarbAge" min="0" max="120" step="5" value="60" oninput="update()">
+        <div class="ctrl-hints"><span>0 (just eaten)</span><span>120 min</span></div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="ctrl-name">Carb ratio (g/U)</span><span class="ctrl-val" id="v-cr">10 g/U</span></div>
+        <input type="range" id="s-cr" min="3" max="30" step="0.5" value="10" oninput="update()">
+        <div class="ctrl-hints"><span>3</span><span>30 g/U</span></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Recent low BG (&lt;100) in last 60 min</span>
+        <label class="toggle"><input type="checkbox" id="t-recentLow" onchange="update()"><div class="toggle-slider"></div></label>
       </div>
       <div class="toggle-row">
         <span class="toggle-label">Disable Night Mode if COB &gt; 0</span>
@@ -877,6 +901,8 @@ function getInputs() {
     basal:         gf('s-basal'),
     bg:            gf('s-bg'),
     delta:         gf('s-delta'),
+    shortAvgDelta: gf('s-shortAvgDelta'),
+    longAvgDelta:  gf('s-longAvgDelta'),
     target:        gf('s-target'),
     iob:           gf('s-iob'),
     peak:          gf('s-peak'),
@@ -903,11 +929,14 @@ function getInputs() {
     activityState: gs('s-activityState'),
     activityPct:   gf('s-activityPct'),
     inactivityPct: gf('s-inactivityPct'),
-    // Night Mode
+    // Night Mode / COB
     nightMode:     gb('t-nightMode'),
     nightActive:   gb('t-nightActive'),
     nightOffset:   gf('s-nightOffset'),
     cob:           gf('s-cob'),
+    lastCarbAge:   gf('s-lastCarbAge'),
+    cr:            gf('s-cr'),
+    recentLow:     gb('t-recentLow'),
     nightModeCob:  gb('t-nightModeCob'),
     // Temp Target
     tempTarget:    gb('t-tempTarget'),
@@ -998,27 +1027,26 @@ function calcAll(inp) {
     ? calcIsfAtBg(inp.bg, sensNTV2, inp.normTarget, divisor, 1.0, inp.bgCap)
     : scaledProfileIsf;
 
-  // ── SMB max bolus ──────────────────────────────────────────
-  // IOB > -0.2 → maxUAMSMBBasalMinutes; else → maxSMBBasalMinutes
+  // ── SMB max bolus (Tier 8 / IOB-branch selection) ────────
   // mirrors DetermineBasalBoost.kt lines 1035-1041
   const smbMinToUse = (inp.iob > -0.2) ? inp.uamSmbMin : inp.smbMin;
-  const maxBasalBolus = effectiveBasal * smbMinToUse / 60.0;
+  const maxBasalBolus = effectiveBasal * smbMinToUse / 60.0;  // used ONLY by Tier 8
 
-  // ── insulinReq (simplified) ───────────────────────────────
+  // ── insulinReq ────────────────────────────────────────────
   const insulinReqV1 = Math.max(0, (inp.bg - inp.target) / isfV1);
 
-  // ── insulinReq divisor (Percent Scaling changes it) ───────
+  // ── Percent scaling divisors ──────────────────────────────
   // mirrors DetermineBasalBoost.kt lines 1049-1068
-  const baseReqDivisor = 1.0 / inp.insulinReqPct;
-  let scaledDivisor = baseReqDivisor;
+  const baseReqDivisor = 1.0 / inp.insulinReqPct;  // insulinReqPCT in Kotlin
+  // scale_pct: always computed; falls back to baseReqDivisor if percent scale disabled
+  const scale_pct = inp.percentScale
+    ? 100.0 / (inp.percentScaleVal * profileScale)
+    : baseReqDivisor;
+  let scaledDivisor = baseReqDivisor;  // insulinDivisor in Kotlin
   if (inp.percentScale) {
-    const scale_pct = 100.0 / (inp.percentScaleVal * profileScale);
-    if (inp.bg < 108) {
-      scaledDivisor = scale_pct;
-    } else {
-      // sliding scale between scale_pct and baseReqDivisor across 108–180 window
-      scaledDivisor = baseReqDivisor - ((Math.abs(inp.bg - 180) / 72) * (baseReqDivisor - scale_pct));
-    }
+    scaledDivisor = inp.bg < 108
+      ? scale_pct
+      : baseReqDivisor - ((Math.abs(inp.bg - 180) / 72) * (baseReqDivisor - scale_pct));
   }
 
   // ── Night mode suppression ────────────────────────────────
@@ -1026,16 +1054,117 @@ function calcAll(inp) {
     (inp.bg < (inp.target + inp.nightOffset)) &&
     !(inp.nightModeCob && inp.cob > 0);
 
-  // ── Final microbolus ──────────────────────────────────────
+  // ── Derived dynamics (for tier decision tree) ─────────────
+  // mirrors DetermineBasalBoost.kt lines 235-237
+  const delta_accl = Math.abs(inp.shortAvgDelta) > 0.001
+    ? Math.round(100 * (inp.delta - inp.shortAvgDelta) / Math.abs(inp.shortAvgDelta) * 100) / 100
+    : 0;
+  const uamBoost1 = Math.abs(inp.shortAvgDelta) > 0.001 ? inp.delta / inp.shortAvgDelta : 0;
+  const uamBoost2 = Math.abs(inp.longAvgDelta) > 0.001 ? Math.abs(inp.delta / inp.longAvgDelta) : 0;
+  // Simplified eventualBG: 30-min trend projection using longAvgDelta (6 × 5-min intervals)
+  const eventualBG = inp.bg + inp.longAvgDelta * 6;
+  // Fast-carb rebound detection (mirrors DetermineBasalBoost.kt lines 1089-1096)
+  const reversalScore = (inp.longAvgDelta < 0 && inp.delta > 0)
+    ? inp.delta * Math.abs(inp.longAvgDelta) : 0;
+  const fastCarbRebound = (inp.recentLow || reversalScore > 30)
+    && inp.cob === 0 && inp.bg < 170 && delta_accl > 25;
+
+  // boost_scale = profile.boost_scale × (profileSwitch/100)
+  const boost_scale = inp.scale * profileScale;
+
+  // ── Blocking conditions ───────────────────────────────────
   const ioBlock          = inp.iob > inp.maxIob;
   const boostDisabledScale = inp.scale >= 3.0;
-  // Tier 8 fallback caps by maxBolus (basal × uamSmbMin/60). All other tiers cap by boost_max (bolusMax).
-  // The main display uses the Tier 8 formula as a conservative lower bound for the simplified sim.
-  let rawMicroBolus = Math.max(0, Math.min(insulinReqV1 / scaledDivisor, maxBasalBolus, inp.bolusMax));
-  // For percent-scale comparison: Tier 5 caps only by boost_max (bolusMax), not maxBasalBolus.
+
+  // ── 8-tier SMB decision tree ──────────────────────────────
+  // Mirrors DetermineBasalBoost.kt lines 1133-1240
+  // Caps: Tiers 1-7 → bolusMax (boost_max); Tier 8 → maxBasalBolus AND bolusMax
+  const R = 20; // roundSMBTo = 1/bolus_increment (0.05 U)
+  const boostActive = !boostDisabledScale;
+  const boostMaxIOB = inp.maxIob;
+  let tier = 'BLOCKED', microBolus = 0;
+
+  if (!ioBlock && !boostDisabledScale && !nightSuppressed) {
+    // Tier 1: Primary COB (< 25 min since carbs)
+    if (boostActive && inp.cob > 0 && inp.lastCarbAge < 25) {
+      tier = 'T1_COB_PRIMARY';
+      microBolus = Math.floor(Math.min(insulinReqV1 / baseReqDivisor, insulinReqV1) * R) / R;
+    }
+    // Tier 2: Secondary COB (< 40 min, delta > 5)
+    else if (boostActive && inp.cob > 0 && inp.lastCarbAge < 40 && inp.delta > 5) {
+      tier = 'T2_COB_SECONDARY';
+      const cobBoostMax = Math.max((inp.cob / inp.cr) / baseReqDivisor, inp.bolusMax);
+      microBolus = Math.floor(Math.min(insulinReqV1 / baseReqDivisor, cobBoostMax) * R) / R;
+    }
+    // Tier 3: UAM Boost (strong acceleration)
+    else if (!fastCarbRebound && inp.delta >= 5 && inp.shortAvgDelta >= 3
+        && uamBoost1 > 1.2 && uamBoost2 > 2
+        && boostActive && inp.iob < boostMaxIOB && boost_scale < 3
+        && eventualBG > inp.target && inp.bg > 80 && insulinReqV1 > 0) {
+      tier = 'T3_UAM_BOOST';
+      let boostInsReq = Math.min(boost_scale * effectiveBasal, inp.bolusMax);
+      if (boostInsReq > boostMaxIOB - inp.iob) boostInsReq = boostMaxIOB - inp.iob;
+      // When delta_accl > 1, switch to scaled divisor (percent scale)
+      const t3div = delta_accl > 1 ? scaledDivisor : baseReqDivisor;
+      if (boostInsReq < insulinReqV1 / t3div) {
+        microBolus = Math.floor(Math.min(insulinReqV1 / t3div, inp.bolusMax) * R) / R;
+      } else {
+        microBolus = Math.floor(Math.min(boostInsReq, inp.bolusMax) * R) / R;
+      }
+    }
+    // Tier 4: UAM High Boost (BG > 180, delta_accl > 5)
+    else if (delta_accl > 5 && inp.bg > 180 && boostActive && inp.iob < boostMaxIOB
+        && boost_scale < 3 && eventualBG > inp.target && inp.bg > 80 && insulinReqV1 > 0) {
+      tier = 'T4_UAM_HIGH_BOOST';
+      let boostInsReq = Math.min(boost_scale * effectiveBasal, inp.bolusMax);
+      if (boostInsReq > boostMaxIOB - inp.iob) boostInsReq = boostMaxIOB - inp.iob;
+      if (boostInsReq < insulinReqV1 / baseReqDivisor) {
+        boostInsReq = Math.min(boostInsReq + 0.5 * (insulinReqV1 / baseReqDivisor), insulinReqV1 / baseReqDivisor);
+        microBolus = Math.floor(Math.min(boostInsReq / baseReqDivisor, inp.bolusMax) * R) / R;
+      } else {
+        microBolus = Math.floor(Math.min(boostInsReq, inp.bolusMax) * R) / R;
+      }
+    }
+    // Tier 5: Percent Scale (BG 98-181, delta > 3, any acceleration)
+    else if (!fastCarbRebound && inp.bg > 98 && inp.bg < 181 && inp.delta > 3
+        && delta_accl > 0 && eventualBG > inp.target && inp.iob < boostMaxIOB && boostActive) {
+      tier = 'T5_PERCENT_SCALE';
+      let insReq = insulinReqV1;
+      if (insReq > boostMaxIOB - inp.iob) insReq = boostMaxIOB - inp.iob;
+      let div5 = scaledDivisor;
+      if (insReq < 0) {
+        // BG falling but still above target – use doubled scale
+        div5 = baseReqDivisor - ((Math.abs(inp.bg - 180) / 72) * (baseReqDivisor - 2 * scale_pct));
+        insReq = effectiveBasal;
+      }
+      microBolus = Math.floor(Math.min(insReq / div5, inp.bolusMax) * R) / R;
+    }
+    // Tier 6: Acceleration Bolus (delta_accl > 25)
+    else if (!fastCarbRebound && delta_accl > 25 && inp.delta > 4
+        && inp.iob < boostMaxIOB && boostActive && eventualBG > inp.target) {
+      tier = 'T6_ACCELERATION';
+      let boostInsReq = Math.min(boost_scale * effectiveBasal, inp.bolusMax);
+      if (boostInsReq > boostMaxIOB - inp.iob) boostInsReq = boostMaxIOB - inp.iob;
+      const div6 = baseReqDivisor - ((Math.abs(inp.bg - 180) / 72) * (baseReqDivisor - 2 * scale_pct));
+      microBolus = Math.floor(Math.min(boostInsReq / div6, inp.bolusMax) * R) / R;
+    }
+    // Tier 7: Enhanced oref1 (mild rise, slight acceleration)
+    else if (boostActive && inp.delta > 0 && delta_accl >= 0.5) {
+      tier = 'T7_ENHANCED_OREF1';
+      let insReq = insulinReqV1;
+      if (insReq > boostMaxIOB - inp.iob) insReq = boostMaxIOB - inp.iob;
+      microBolus = Math.floor(Math.min(insReq / baseReqDivisor, inp.bolusMax) * R) / R;
+    }
+    // Tier 8: Regular oref1 (fallback) — only tier that uses maxBasalBolus cap
+    else {
+      tier = 'T8_REGULAR_OREF1';
+      microBolus = Math.floor(Math.min(insulinReqV1 / baseReqDivisor, maxBasalBolus) * R) / R;
+    }
+  }
+
+  const rawMicroBolus = microBolus; // kept for compatibility with existing UI code
+  // For percent-scale comparison panel: before/after using bolusMax cap only
   const rawMicroBolusUnscaled = Math.max(0, Math.min(insulinReqV1 / baseReqDivisor, inp.bolusMax));
-  const blocked = ioBlock || boostDisabledScale || nightSuppressed;
-  const microBolus = blocked ? 0 : Math.floor(rawMicroBolus * 20) / 20;
 
   const aggScore = computeAggScore(inp, isfV1, inp.profIsf, maxBasalBolus, profilePct, nightSuppressed);
 
@@ -1044,9 +1173,11 @@ function calcAll(inp) {
     scaledProfileIsf, sensNTV1, sensNTV2,
     isfV1, isfV2, bgCapped,
     smbMinToUse, maxBasalBolus,
-    insulinReqV1, scaledDivisor, baseReqDivisor, rawMicroBolus, rawMicroBolusUnscaled, microBolus,
+    insulinReqV1, scaledDivisor, baseReqDivisor, scale_pct, rawMicroBolus, rawMicroBolusUnscaled, microBolus,
     ioBlock, boostDisabledScale, nightSuppressed,
     ttRatioApplied, circFactor,
+    delta_accl, uamBoost1, uamBoost2, eventualBG, fastCarbRebound, tier,
+    boost_scale,
     aggScore,
   };
 }
@@ -1078,8 +1209,9 @@ function update() {
     document.getElementById('v-' + id).textContent = el.value + (suffix || '');
   };
   sl('tdd',' U'); sl('profIsf',' mg/U'); sl('basal',' U/hr');
-  sl('bg',' mg/dL'); sl('delta',' mg/dL/5m'); sl('target',' mg/dL');
-  sl('iob',' U'); sl('peak',' min');
+  sl('bg',' mg/dL'); sl('delta',' mg/dL/5m');
+  sl('shortAvgDelta',' mg/dL/5m'); sl('longAvgDelta',' mg/dL/5m');
+  sl('target',' mg/dL'); sl('iob',' U'); sl('peak',' min');
   sl('normTarget',' mg/dL'); sl('bgCap',' mg/dL');
   sl('velocity','%'); sl('tddAdj','%');
   sl('sensRatio','');
@@ -1087,6 +1219,7 @@ function update() {
   document.getElementById('v-circHour').textContent = `${String(circHour).padStart(2,'0')}:00`;
   sl('scale',''); sl('maxIob',' U'); sl('bolusMax',' U');
   sl('insulinReqPct','%'); sl('smbMin',' min'); sl('uamSmbMin',' min');
+  sl('lastCarbAge',' min'); sl('cr',' g/U');
   sl('percentScale','%');
   sl('activityPct','%'); sl('inactivityPct','%');
   sl('nightOffset',' mg/dL'); sl('cob',' g');
@@ -1108,7 +1241,28 @@ function update() {
   if (r.profilePct !== 100) pills.push({text:`Profile at ${r.profilePct}% (${inp.activityState})`, cls:'pill-gray'});
   if (inp.circadian)   pills.push({text:`Circadian factor: ×${fmt(r.circFactor,2)} at ${circHour}:00`, cls:'pill-gray'});
   if (inp.tempTarget && r.ttRatioApplied !== 1.0) pills.push({text:`TT ISF ratio: ${fmt(r.ttRatioApplied,2)} (TT=${inp.tempTargetBg})`, cls:'pill-gray'});
-  if (r.smbMinToUse === inp.uamSmbMin) pills.push({text:`Using UAM SMB minutes (${inp.uamSmbMin}m) — IOB > -0.2`, cls:'pill-gray'});
+  if (r.smbMinToUse === inp.uamSmbMin) pills.push({text:`UAM SMB minutes (${inp.uamSmbMin}m, IOB > -0.2)`, cls:'pill-gray'});
+  const tierLabels = {
+    'T1_COB_PRIMARY':   'Tier 1 — COB Primary (<25 min)',
+    'T2_COB_SECONDARY': 'Tier 2 — COB Secondary (<40 min, delta>5)',
+    'T3_UAM_BOOST':     'Tier 3 — UAM Boost',
+    'T4_UAM_HIGH_BOOST':'Tier 4 — UAM High Boost (BG>180)',
+    'T5_PERCENT_SCALE': 'Tier 5 — Percent Scale (BG 98–181, delta>3)',
+    'T6_ACCELERATION':  'Tier 6 — Acceleration (delta_accl>25)',
+    'T7_ENHANCED_OREF1':'Tier 7 — Enhanced oref1',
+    'T8_REGULAR_OREF1': 'Tier 8 — Regular oref1 (fallback)',
+    'BLOCKED':          'SMBs BLOCKED',
+  };
+  const tierCls = {
+    'T1_COB_PRIMARY':'pill-green','T2_COB_SECONDARY':'pill-green',
+    'T3_UAM_BOOST':'pill-yellow','T4_UAM_HIGH_BOOST':'pill-yellow',
+    'T5_PERCENT_SCALE':'pill-yellow','T6_ACCELERATION':'pill-yellow',
+    'T7_ENHANCED_OREF1':'pill-gray','T8_REGULAR_OREF1':'pill-gray',
+    'BLOCKED':'pill-red',
+  };
+  pills.push({text: tierLabels[r.tier] || r.tier, cls: tierCls[r.tier] || 'pill-gray'});
+  if (r.fastCarbRebound) pills.push({text:'Fast-carb protection: Tiers 3/5/6 suppressed', cls:'pill-red'});
+  pills.push({text:`δ_accl=${fmt(r.delta_accl,1)}% | UAM1=${fmt(r.uamBoost1,2)} | UAM2=${fmt(r.uamBoost2,2)} | eBG=${fmt(r.eventualBG,0)}`, cls:'pill-gray'});
 
   document.getElementById('status-row').innerHTML = pills.map(p =>
     `<span class="pill ${p.cls}">${p.text}</span>`).join('');
@@ -1178,15 +1332,38 @@ function update() {
     smbBreak += inp.nightModeCob && inp.cob > 0 ? `(would unblock with COB ${inp.cob}g — but Disable NM if COB is OFF)` : `(re-enable: raise offset, or turn on "Disable NM if COB>0" with COB present)`;
   } else {
     smbBreak = `insulinReq: (${inp.bg} - ${inp.target}) ÷ ISF ${fmt(r.isfV1,1)} = ${fmt(r.insulinReqV1,3)} U\n`;
-    smbBreak += `Tiers 1–7: cap = Boost Max Bolus (${fmt(inp.bolusMax,2)} U)\n`;
-    smbBreak += `Tier 8 (fallback only): cap = basal×${r.smbMinToUse}÷60 = ${fmt(r.maxBasalBolus,3)} U\n`;
-    if (inp.percentScale) {
-      smbBreak += `Percent Scaling (Tier 5, BG 98–181, delta>3): insulinDivisor = ${fmt(r.scaledDivisor,3)} (base=${fmt(r.baseReqDivisor,3)})\n`;
-      smbBreak += `  Tier 5 SMB = min(${fmt(r.insulinReqV1,3)}÷${fmt(r.scaledDivisor,3)}, ${fmt(inp.bolusMax,2)}) = ${fmt(Math.min(r.insulinReqV1/r.scaledDivisor,inp.bolusMax),3)} U\n`;
-    } else {
-      smbBreak += `insulinReqPct divisor: 1÷${(inp.insulinReqPct*100).toFixed(0)}% = ${fmt(r.baseReqDivisor,3)}\n`;
+    smbBreak += `δ=${inp.delta} | shortAvg=${inp.shortAvgDelta} | longAvg=${inp.longAvgDelta} → δ_accl=${fmt(r.delta_accl,1)}%\n`;
+    smbBreak += `uamBoost1=${fmt(r.uamBoost1,2)} | uamBoost2=${fmt(r.uamBoost2,2)} | eventualBG≈${fmt(r.eventualBG,0)} | boost_scale=${fmt(r.boost_scale,2)}\n`;
+    smbBreak += `Active tier: ${r.tier}\n`;
+    if (r.fastCarbRebound) smbBreak += `⚠ Fast-carb rebound: Tiers 3/5/6 suppressed\n`;
+    const tierKey = r.tier;
+    if (tierKey === 'T1_COB_PRIMARY') {
+      smbBreak += `min(insulinReq÷insulinReqPCT, insulinReq) = min(${fmt(r.insulinReqV1/r.baseReqDivisor,3)}, ${fmt(r.insulinReqV1,3)}) = ${fmt(r.microBolus,2)} U`;
+    } else if (tierKey === 'T2_COB_SECONDARY') {
+      const cobMax = Math.max((inp.cob/inp.cr)/r.baseReqDivisor, inp.bolusMax);
+      smbBreak += `cobBoostMax=max(COB÷CR÷pct, bolusMax)=max(${fmt((inp.cob/inp.cr)/r.baseReqDivisor,3)}, ${inp.bolusMax})=${fmt(cobMax,3)} U\n`;
+      smbBreak += `min(insulinReq÷insulinReqPCT, cobBoostMax) = ${fmt(r.microBolus,2)} U`;
+    } else if (tierKey === 'T3_UAM_BOOST') {
+      const t3div = r.delta_accl > 1 ? r.scaledDivisor : r.baseReqDivisor;
+      smbBreak += `boost_scale×basal=min(${fmt(r.boost_scale,2)}×${fmt(r.effectiveBasal,3)}, ${inp.bolusMax})=${fmt(Math.min(r.boost_scale*r.effectiveBasal,inp.bolusMax),3)} U\n`;
+      smbBreak += `divisor=${fmt(t3div,3)} (${r.delta_accl>1?'scaled — δ_accl>1':'base'})\n`;
+      smbBreak += `SMB = ${fmt(r.microBolus,2)} U (capped at bolusMax=${inp.bolusMax} U)`;
+    } else if (tierKey === 'T4_UAM_HIGH_BOOST') {
+      smbBreak += `boost_scale×basal=min(${fmt(r.boost_scale,2)}×${fmt(r.effectiveBasal,3)}, ${inp.bolusMax})=${fmt(Math.min(r.boost_scale*r.effectiveBasal,inp.bolusMax),3)} U\n`;
+      smbBreak += `SMB = ${fmt(r.microBolus,2)} U (capped at bolusMax=${inp.bolusMax} U)`;
+    } else if (tierKey === 'T5_PERCENT_SCALE') {
+      smbBreak += `insulinDivisor = ${fmt(r.scaledDivisor,3)} (base=${fmt(r.baseReqDivisor,3)}, scale_pct=${fmt(r.scale_pct,3)})\n`;
+      smbBreak += `min(insulinReq÷insulinDivisor, bolusMax) = min(${fmt(r.insulinReqV1/r.scaledDivisor,3)}, ${inp.bolusMax}) = ${fmt(r.microBolus,2)} U`;
+    } else if (tierKey === 'T6_ACCELERATION') {
+      const div6 = r.baseReqDivisor - ((Math.abs(inp.bg-180)/72)*(r.baseReqDivisor - 2*r.scale_pct));
+      smbBreak += `div6 = insulinReqPCT − (|BG-180|÷72)×(insulinReqPCT−2×scale_pct) = ${fmt(div6,3)}\n`;
+      smbBreak += `boost_scale×basal=${fmt(Math.min(r.boost_scale*r.effectiveBasal,inp.bolusMax),3)} U ÷ div6 = ${fmt(r.microBolus,2)} U`;
+    } else if (tierKey === 'T7_ENHANCED_OREF1') {
+      smbBreak += `min(insulinReq÷insulinReqPCT, bolusMax) = min(${fmt(r.insulinReqV1/r.baseReqDivisor,3)}, ${inp.bolusMax}) = ${fmt(r.microBolus,2)} U`;
+    } else if (tierKey === 'T8_REGULAR_OREF1') {
+      smbBreak += `maxBasalBolus = ${fmt(r.effectiveBasal,3)}×${r.smbMinToUse}÷60 = ${fmt(r.maxBasalBolus,3)} U (only tier using this cap)\n`;
+      smbBreak += `min(insulinReq÷insulinReqPCT, maxBasalBolus) = min(${fmt(r.insulinReqV1/r.baseReqDivisor,3)}, ${fmt(r.maxBasalBolus,3)}) = ${fmt(r.microBolus,2)} U`;
     }
-    smbBreak += `Simplified sim output (Tier 8 conservative bound, rounded to 0.05U): ${fmt(r.microBolus,2)} U`;
   }
   document.getElementById('out-smb-breakdown').textContent = smbBreak;
 
@@ -1490,16 +1667,52 @@ function drawSmbChart(inp, r) {
   const bgRange = [80, 300];
   const divisor = r.divisor;
 
+  // The chart shows SMB as a function of BG, holding all other inputs fixed.
+  // For each BG point, we re-run the tier decision with the current dynamics inputs.
+  // Tier 8 (fallback) caps at maxBasalBolus; all other tiers cap at bolusMax.
+  const profileScale = r.profilePct / 100.0;
+  const boost_scale_chart = inp.scale * profileScale;
+  const effectiveBasal_chart = inp.basal * profileScale;
+  const baseReqDivisor_chart = 1.0 / inp.insulinReqPct;
+  const smbMinChart = inp.iob > -0.2 ? inp.uamSmbMin : inp.smbMin;
+  const maxBasalBolus_chart = effectiveBasal_chart * smbMinChart / 60.0;
+  const RC = 20; // roundSMBTo
+
   const bgs = [], smbs = [];
   for (let bg = bgRange[0]; bg <= bgRange[1]; bg += 2) {
     bgs.push(bg);
     const isfAtBg = inp.useTdd && r.sensNTV1 ? calcIsfAtBg(bg, r.sensNTV1, inp.normTarget, divisor, inp.velocity, inp.bgCap) : inp.profIsf;
     const insulinReq = Math.max(0, (bg - inp.target) / isfAtBg);
-    const maxBasal = inp.basal * inp.smbMin / 60.0;
-    const insulinReqDivisor = 1.0 / inp.insulinReqPct;
-    let smb = Math.min(insulinReq / insulinReqDivisor, maxBasal, inp.bolusMax);
-    smb = inp.iob > inp.maxIob || inp.scale >= 3.0 ? 0 : Math.max(0, Math.floor(smb * 20) / 20);
-    smbs.push(smb);
+    const scale_pct_c = inp.percentScale ? 100.0/(inp.percentScaleVal*profileScale) : baseReqDivisor_chart;
+    const scaledDiv = inp.percentScale
+      ? (bg < 108 ? scale_pct_c : baseReqDivisor_chart - ((Math.abs(bg-180)/72)*(baseReqDivisor_chart-scale_pct_c)))
+      : baseReqDivisor_chart;
+    const eventBG = bg + inp.longAvgDelta * 6;
+
+    let smb;
+    if (inp.iob > inp.maxIob || inp.scale >= 3.0) {
+      smb = 0;
+    } else if (inp.cob > 0 && inp.lastCarbAge < 25) {
+      smb = Math.floor(Math.min(insulinReq/baseReqDivisor_chart, insulinReq) * RC) / RC;
+    } else if (inp.cob > 0 && inp.lastCarbAge < 40 && inp.delta > 5) {
+      smb = Math.floor(Math.min(insulinReq/baseReqDivisor_chart, inp.bolusMax) * RC) / RC;
+    } else if (!r.fastCarbRebound && inp.delta >= 5 && inp.shortAvgDelta >= 3 && r.uamBoost1 > 1.2 && r.uamBoost2 > 2 && inp.iob < inp.maxIob && eventBG > inp.target && bg > 80) {
+      const t3d = r.delta_accl > 1 ? scaledDiv : baseReqDivisor_chart;
+      smb = Math.floor(Math.min(insulinReq/t3d, inp.bolusMax) * RC) / RC;
+    } else if (r.delta_accl > 5 && bg > 180 && inp.iob < inp.maxIob && eventBG > inp.target && bg > 80) {
+      smb = Math.floor(Math.min(Math.min(boost_scale_chart*effectiveBasal_chart,inp.bolusMax), inp.bolusMax) * RC) / RC;
+    } else if (!r.fastCarbRebound && bg > 98 && bg < 181 && inp.delta > 3 && r.delta_accl > 0 && eventBG > inp.target && inp.iob < inp.maxIob) {
+      smb = Math.floor(Math.min(insulinReq/scaledDiv, inp.bolusMax) * RC) / RC;
+    } else if (!r.fastCarbRebound && r.delta_accl > 25 && inp.delta > 4 && inp.iob < inp.maxIob && eventBG > inp.target) {
+      const d6 = baseReqDivisor_chart - ((Math.abs(bg-180)/72)*(baseReqDivisor_chart - 2*scale_pct_c));
+      const bi = Math.min(boost_scale_chart*effectiveBasal_chart, inp.bolusMax);
+      smb = Math.floor(Math.min(bi/d6, inp.bolusMax) * RC) / RC;
+    } else if (inp.delta > 0 && r.delta_accl >= 0.5) {
+      smb = Math.floor(Math.min(insulinReq/baseReqDivisor_chart, inp.bolusMax) * RC) / RC;
+    } else {
+      smb = Math.floor(Math.min(insulinReq/baseReqDivisor_chart, maxBasalBolus_chart) * RC) / RC;
+    }
+    smbs.push(Math.max(0, smb));
   }
 
   const maxY = Math.max(...smbs, 0.5) * 1.1;
@@ -1508,16 +1721,15 @@ function drawSmbChart(inp, r) {
 
   ctx.clearRect(0, 0, W, H); ctx.fillStyle='#0f1117'; ctx.fillRect(0,0,W,H);
 
-  // Cap lines
-  const maxBasalBolus = inp.basal * inp.smbMin / 60.0;
+  // Cap lines — orange=maxBasalBolus (T8 only), red=bolusMax (T1-7)
   ctx.strokeStyle='rgba(249,115,22,0.4)'; ctx.lineWidth=1; ctx.setLineDash([4,3]);
-  ctx.beginPath(); ctx.moveTo(pad.l,yS(maxBasalBolus)); ctx.lineTo(W-pad.r,yS(maxBasalBolus)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(pad.l,yS(maxBasalBolus_chart)); ctx.lineTo(W-pad.r,yS(maxBasalBolus_chart)); ctx.stroke();
   ctx.strokeStyle='rgba(239,68,68,0.4)';
   ctx.beginPath(); ctx.moveTo(pad.l,yS(inp.bolusMax)); ctx.lineTo(W-pad.r,yS(inp.bolusMax)); ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle='rgba(249,115,22,0.6)'; ctx.font='10px system-ui'; ctx.textAlign='right';
-  if (maxBasalBolus < maxY) ctx.fillText(`maxBasalBolus ${fmt(maxBasalBolus,2)}U`, W-pad.r-4, yS(maxBasalBolus)-4);
-  if (inp.bolusMax < maxY) ctx.fillText(`bolusMax ${inp.bolusMax}U`, W-pad.r-4, yS(inp.bolusMax)-4);
+  if (maxBasalBolus_chart < maxY) ctx.fillText(`maxBasalBolus ${fmt(maxBasalBolus_chart,2)}U (T8)`, W-pad.r-4, yS(maxBasalBolus_chart)-4);
+  if (inp.bolusMax < maxY) ctx.fillText(`bolusMax ${inp.bolusMax}U (T1-7)`, W-pad.r-4, yS(inp.bolusMax)-4);
 
   // Grid
   ctx.strokeStyle='#1e2d40'; ctx.lineWidth=1;
@@ -1559,26 +1771,29 @@ function drawSmbChart(inp, r) {
 // ════════════════════════════════════════════════════════════
 // Base defaults applied to every scenario (prevents stale values from previous scenario)
 const DEFAULTS = {
-  tdd:40, profIsf:50, basal:1.0, bg:140, delta:2, target:100, iob:0.5, peak:55,
+  tdd:40, profIsf:50, basal:1.0, bg:140, delta:2, shortAvgDelta:1.5, longAvgDelta:1.0,
+  target:100, iob:0.5, peak:55,
   useTdd:true, normTarget:99, bgCap:210, velocity:100, tddAdj:100,
   adjustSens:false, sensRatio:1.0, circadian:false, circHour:12,
   scale:1.0, maxIob:1.0, bolusMax:2.5, insulinReqPct:50, smbMin:30, uamSmbMin:15,
   percentScale:false, percentScaleVal:200,
   activityState:'normal', activityPct:80, inactivityPct:130,
-  nightMode:false, nightActive:false, nightOffset:27, cob:0, nightModeCob:false,
+  nightMode:false, nightActive:false, nightOffset:27,
+  cob:0, lastCarbAge:60, cr:10, recentLow:false, nightModeCob:false,
   tempTarget:false, tempTargetBg:140, highTtSens:false, lowTtSens:false,
 };
 const scenarios = {
   default:      { ...DEFAULTS },
-  conservative: { ...DEFAULTS, velocity:50, tddAdj:100, scale:0.7, maxIob:0.5, bolusMax:1.0, insulinReqPct:35, smbMin:20, uamSmbMin:15 },
-  aggressive:   { ...DEFAULTS, bg:160, delta:4, iob:0.2, normTarget:90, bgCap:180, tddAdj:110, scale:1.5, maxIob:3.0, bolusMax:4.0, insulinReqPct:80, smbMin:60, uamSmbMin:30 },
-  highTdd:      { ...DEFAULTS, tdd:60, profIsf:30, basal:1.5, bg:150, delta:3, iob:0.5, maxIob:2.0, bolusMax:3.0, uamSmbMin:20 },
-  lowTdd:       { ...DEFAULTS, tdd:20, profIsf:80, basal:0.5, bg:130, delta:1, iob:0.1, maxIob:0.5, bolusMax:1.5 },
-  risingMeal:   { ...DEFAULTS, bg:180, delta:8, iob:0.3, percentScale:true, percentScaleVal:200, cob:30 },
-  highBgFlat:   { ...DEFAULTS, bg:240, delta:0, iob:1.5, maxIob:3.0 },
+  conservative: { ...DEFAULTS, velocity:50, scale:0.7, maxIob:0.5, bolusMax:1.0, insulinReqPct:35, smbMin:20, uamSmbMin:15 },
+  aggressive:   { ...DEFAULTS, bg:160, delta:4, shortAvgDelta:3.5, longAvgDelta:2.5, iob:0.2, normTarget:90, bgCap:180, tddAdj:110, scale:1.5, maxIob:3.0, bolusMax:4.0, insulinReqPct:80, smbMin:60, uamSmbMin:30 },
+  highTdd:      { ...DEFAULTS, tdd:60, profIsf:30, basal:1.5, bg:150, delta:3, shortAvgDelta:2.5, longAvgDelta:2.0, iob:0.5, maxIob:2.0, bolusMax:3.0, uamSmbMin:20 },
+  lowTdd:       { ...DEFAULTS, tdd:20, profIsf:80, basal:0.5, bg:130, delta:1, shortAvgDelta:0.8, longAvgDelta:0.5, iob:0.1, maxIob:0.5, bolusMax:1.5 },
+  // risingMeal: COB present <25min triggers T1; delta=8 with matching avgs triggers T3 once COB window passes
+  risingMeal:   { ...DEFAULTS, bg:165, delta:8, shortAvgDelta:6.0, longAvgDelta:4.0, iob:0.3, percentScale:true, percentScaleVal:200, cob:30, lastCarbAge:20, cr:10 },
+  highBgFlat:   { ...DEFAULTS, bg:240, delta:0, shortAvgDelta:0, longAvgDelta:-0.5, iob:1.5, maxIob:3.0 },
   exercise:     { ...DEFAULTS, activityState:'active', activityPct:80, tempTarget:true, tempTargetBg:160, highTtSens:true },
   sedentary:    { ...DEFAULTS, activityState:'inactive', inactivityPct:130 },
-  nightSleep:   { ...DEFAULTS, bg:105, delta:0, iob:0.2, nightMode:true, nightActive:true, nightOffset:27 },
+  nightSleep:   { ...DEFAULTS, bg:105, delta:0, shortAvgDelta:0, longAvgDelta:0, iob:0.2, nightMode:true, nightActive:true, nightOffset:27 },
 };
 
 function applyScenario(key) {
