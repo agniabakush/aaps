@@ -54,6 +54,7 @@ import app.aaps.core.interfaces.smsCommunicator.SmsCommunicator
 import app.aaps.core.interfaces.sync.XDripBroadcast
 import app.aaps.core.interfaces.utils.DateUtil
 import app.aaps.core.interfaces.utils.DecimalFormatter
+import app.aaps.core.interfaces.utils.Round
 import app.aaps.core.interfaces.utils.SafeParse
 import app.aaps.core.interfaces.utils.fabric.FabricPrivacy
 import app.aaps.core.keys.BooleanKey
@@ -379,7 +380,7 @@ class SmsCommunicatorPlugin @Inject constructor(
             reply = rh.gs(R.string.sms_last_bg) + " " + profileUtil.valueInCurrentUnitsDetect(lastBG.recalculated) + " " + rh.gs(R.string.sms_min_ago, agoMin) + ", "
         }
         val glucoseStatus = glucoseStatusProvider.glucoseStatusData
-        if (glucoseStatus != null) reply += rh.gs(R.string.sms_delta) + " " + profileUtil.fromMgdlToUnits(glucoseStatus.delta) + " " + units + ", "
+        if (glucoseStatus != null) reply += rh.gs(R.string.sms_delta) + " " + profileUtil.fromMgdlToStringInUnits(glucoseStatus.delta) + " " + units + ", "
         val bolusIob = iobCobCalculator.calculateIobFromBolus().round()
         val basalIob = iobCobCalculator.calculateIobFromTempBasalsIncludingConvertedExtended().round()
         val cobInfo = iobCobCalculator.getCobInfo("SMS COB")
@@ -1241,14 +1242,11 @@ class SmsCommunicatorPlugin @Inject constructor(
 
         try {
             aapsLogger.debug(LTag.SMS, "Sending SMS to " + sms.phoneNumber + ": " + sms.text)
-            if (sms.text.toByteArray().size <= 140) smsManager?.sendTextMessage(sms.phoneNumber, null, sms.text, null, null)
-            else {
-                val parts = smsManager?.divideMessage(sms.text)
-                smsManager?.sendMultipartTextMessage(
-                    sms.phoneNumber, null, parts,
-                    null, null
-                )
-            }
+            val parts = smsManager?.divideMessage(sms.text)
+            smsManager?.sendMultipartTextMessage(
+                sms.phoneNumber, null, parts,
+                null, null
+            )
             messages.add(sms)
         } catch (e: IllegalArgumentException) {
             return if (e.message == "Invalid message body") {
@@ -1269,8 +1267,21 @@ class SmsCommunicatorPlugin @Inject constructor(
         return true
     }
 
-    private fun generatePassCode(): String =
-        rh.gs(R.string.smscommunicator_code_from_authenticator_for, otp.name())
+    private fun generatePassCode(): String {
+        if (otp.isEnabled()) {
+            // this not realy generate password - rather info to use Authenticator TOTP instead
+            return rh.gs(R.string.smscommunicator_code_from_authenticator_for, otp.name())
+        }
+
+        val startChar1 = 'A'.toInt() // on iphone 1st char is uppercase :)
+        var passCode = Character.toString((startChar1 + Math.random() * ('z' - 'a' + 1)).toChar())
+        val startChar2: Int = if (Math.random() > 0.5) 'a'.toInt() else 'A'.toInt()
+        passCode += Character.toString((startChar2 + Math.random() * ('z' - 'a' + 1)).toChar())
+        val startChar3: Int = if (Math.random() > 0.5) 'a'.toInt() else 'A'.toInt()
+        passCode += Character.toString((startChar3 + Math.random() * ('z' - 'a' + 1)).toChar())
+        passCode = passCode.replace('l', 'k').replace('I', 'J')
+        return passCode
+    }
 
     private fun stripAccents(str: String): String {
         var s = str
@@ -1318,6 +1329,7 @@ class SmsCommunicatorPlugin @Inject constructor(
                     validatorParams = DefaultEditTextValidator.Parameters(testType = EditTextValidator.TEST_PIN_STRENGTH)
                 )
             )
+            addPreference(AdaptiveSwitchPreference(ctx = context, booleanKey = BooleanKey.SmsEnableOtp, title = R.string.smscommunicator_otp_enabled, summary = R.string.smscommunicator_otp_enabled_summary))
             addPreference(
                 AdaptiveIntentPreference(
                     ctx = context,
