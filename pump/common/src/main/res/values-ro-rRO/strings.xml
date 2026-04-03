@@ -11,6 +11,7 @@
     <string name="pump_status_suspended">Suspendat</string>
     <string name="pump_status_executing_command">Executare comandă</string>
     <!-- Commands -->
+    <!-- Commands -->
     <string name="pump_cmd_desc_get_settings">Obține setările</string>
     <string name="pump_cmd_desc_get_firmware">Obține firmware-ul pompei</string>
     <string name="pump_cmd_desc_get_basal_profile">Obține profilul bazal</string>

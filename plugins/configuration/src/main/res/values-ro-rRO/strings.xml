@@ -49,6 +49,7 @@
     <string name="unattended_settings_export_summary">Activarea acestei opțiuni va stoca în siguranță parola pe telefon</string>
     <string name="identification">Identificare (email, FB sau Discord etc)</string>
     <!-- Provider-agnostic cloud export/import strings -->
+    <!-- Provider-agnostic cloud export/import strings -->
     <string name="exported_to_cloud">Setări exportate cu succes către stocarea în cloud</string>
     <string name="export_to_cloud_failed">Nu s-a reușit exportarea în stocarea din cloud</string>
     <string name="cloud_connection_failed">Conexiune eșuată către stocarea din cloud</string>
@@ -172,6 +173,11 @@
     <string name="metadata_label_encryption">Criptare fișier</string>
     <string name="metadata_format_new">Format nou criptat</string>
     <string name="metadata_format_other">Format necunoscut pentru export</string>
+    <!-- Google Drive Storage -->
+    <!-- Import source selection dialog -->
+    <!-- Google Drive error messages (used by GoogleDriveManager) -->
+    <!-- Provider-agnostic cloud storage strings -->
+    <!-- Authorization status strings -->
     <string name="reset_aps_results">Resetare rezultate APS</string>
     <string name="error_accessing_filesystem_select_aaps_directory_properly">Eroare la accesarea sistemului de fișiere. Selectați corect directorul AAPS.</string>
     <!-- Google Drive Storage -->
